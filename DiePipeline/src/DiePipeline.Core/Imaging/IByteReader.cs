@@ -23,7 +23,7 @@ public interface IByteReader : IDisposable
     /// <paramref name="buffer"/>의 <paramref name="bufferOffset"/> 자리에 채운다.
     ///
     /// ★ 왜 <c>byte[] Read(offset, count)</c> 로 만들지 않았나:
-    ///   그러면 부를 때마다 배열을 새로 만든다. die 한 칸이 2500행이면 <b>배열 2500개</b>다.
+    ///   그러면 부를 때마다 배열을 새로 만든다. die 한 칸이 수천 행이면 <b>배열도 수천 개</b>다.
     ///   버퍼를 받아서 채우면 하나를 계속 다시 쓴다. GC가 할 일이 사라진다.
     ///
     /// ★ <paramref name="bufferOffset"/>이 왜 있나:

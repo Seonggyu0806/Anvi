@@ -1,6 +1,6 @@
 {
-  "recipeId": "die.diff.v2",
-  "description": "die-to-die 기본 — 교수님 die.diff.roimono 와 같은 짝. 실데이터 32 die 로 확정(2026-09-17). 이웃은 같은 행 좌우 1칸(최대 2장)을 웨이퍼 층이 넣어 준다. Mean 은 이웃을 전부 섞으므로 멀리서 더 데려오면 오히려 나빠진다 — 거리 1칸으로 묶어 두고, 미러 오검은 DarkOnly 가 부호로 막는다.",
+  "recipeId": "die.diff.median",
+  "description": "die-to-die 대안 — 부호 대신 중앙값으로 미러를 막는다. 이웃은 같은 행에서 거리를 늘려 3장을 웨이퍼 층이 채워 준다(끝 열도 3장). Median 은 안 닮은 이웃을 버리므로 멀리서 데려와도 손해가 없다. 그래서 Absolute 를 써도 오검이 0이고, 밝은 결함(이물질처럼 덧붙은 것)도 볼 수 있다. 대가는 속도 — 픽셀마다 정렬한다.",
 
   "contextInputs": [ "roi", "chipRegions" ],
 
@@ -11,14 +11,14 @@
         "type": "Combine",
         "inputs": { "regions": "chipRegions" },
         "outputs": { "result": "golden" },
-        "params": { "strategy": "Mean" }
+        "params": { "strategy": "Median" }
       },
       {
         "id": "diff",
         "type": "Difference",
         "inputs": { "test": "roi", "golden": "golden" },
         "outputs": { "result": "diff" },
-        "params": { "windowSize": 3, "diffPolicy": "DarkOnly", "neighborMode": "MinMax" }
+        "params": { "windowSize": 3, "diffPolicy": "Absolute", "neighborMode": "MinMax" }
       },
       {
         "id": "binarize",

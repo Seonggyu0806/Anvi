@@ -27,7 +27,7 @@ public sealed record BmpInfo
 /// BMP 헤더를 읽어 <see cref="ImageGeometry"/>로 바꾼다.
 ///
 /// ★ 이 파서는 <b>헤더만</b> 읽는다. 픽셀은 한 장도 안 읽는다.
-///   1.3GB 파일이어도 앞쪽 54바이트(+팔레트 1KB)만 건드린다.
+///   기가바이트 파일이어도 앞쪽 54바이트(+팔레트 1KB)만 건드린다.
 ///
 /// ★ 그리고 <see cref="IByteReader"/>만 받는다 — 파일 경로가 아니라.
 ///   그래서 <b>가짜 리더에 손으로 만든 헤더를 담아</b> 전부 검증할 수 있다.
@@ -162,7 +162,7 @@ public static class BmpHeader
         return true;
     }
 
-    // ★ BMP는 숫자를 거꾸로 적는다(little-endian). 폭 10000은 파일에 10 27 00 00 으로 들어 있다.
+    // ★ BMP는 숫자를 거꾸로 적는다(little-endian). 값 513은 파일에 01 02 00 00 으로 들어 있다.
     //   손으로 b[0] + b[1]*256 + … 하면 부호·자릿수에서 실수한다. 표준 도구를 쓴다.
     private static uint ReadUInt32(byte[] b, int at) => BinaryPrimitives.ReadUInt32LittleEndian(b.AsSpan(at, 4));
 

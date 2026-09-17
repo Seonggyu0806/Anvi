@@ -17,7 +17,7 @@ namespace DiePipeline.App;
 ///   눈으로 확인하려고 만든 것이다. 격자·이웃 고르기는 웨이퍼 층에서 제대로 만든다.
 ///
 /// ★ 원본을 <b>통째로 읽지 않는다.</b> 필요한 칸만 파일에서 뜯어 온다(Step 7).
-///   실측: 수백 MB 원본에서 2500×2500 네 칸을 읽는 데 155 ms.
+///   실측: 수백 MB 원본에서 die 네 칸을 읽는 데 155 ms.
 /// </summary>
 public static class Program
 {

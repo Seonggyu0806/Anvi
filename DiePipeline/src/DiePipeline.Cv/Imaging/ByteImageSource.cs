@@ -8,8 +8,8 @@ namespace DiePipeline.Cv.Imaging;
 /// 바이트 리더 + 자리 계산 → 이미지 소스. <b>7-1·7-2·7-3 이 여기서 합쳐진다.</b>
 ///
 /// ★ 원본을 통째로 읽지 않는다. 요청한 영역의 <b>행 수만큼만</b> 읽는다.
-///   실측: 572MB 원본에서 2500×2500 한 칸이 23ms(따뜻할 때)·149ms(처음).
-///   die 32개를 다 읽어도 3.0초, 한 칸이 쓰는 메모리는 23.8MB다.
+///   실측: 수백 MB 원본에서 die 한 칸이 23ms(따뜻할 때)·149ms(처음).
+///   웨이퍼 한 장의 die를 다 읽어도 3초 남짓이고, 메모리는 한 칸 크기만 쓴다.
 /// </summary>
 public sealed class ByteImageSource : IImageSource
 {
@@ -50,7 +50,7 @@ public sealed class ByteImageSource : IImageSource
 
         int rowBytes = region.Width * Geometry.BytesPerPixel;
 
-        // 버퍼 하나를 행마다 다시 쓴다. 2500행이면 배열 2500개가 아니라 1개다.
+        // 버퍼 하나를 행마다 다시 쓴다. 수천 행이어도 배열은 1개다.
         byte[] row = new byte[rowBytes];
 
         using Mat raw = new(region.Height, region.Width, RawType());
