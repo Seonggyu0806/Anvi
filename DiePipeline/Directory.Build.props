@@ -1,0 +1,25 @@
+<Project>
+
+  <!--
+    솔루션 전체 공통 설정 — 프로젝트가 늘어나도 여기 한 곳만 고친다.
+    csproj마다 TargetFramework를 적으면 .NET을 올릴 때 전부 고쳐야 한다.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+
+    <!-- 경고를 오류로 — 경고가 쌓이면 아무도 안 본다 -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- 문서 주석에서 빠진 항목까지 경고로 만들지는 않는다(CS1591) -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- OpenCvSharp 버전을 한 곳에서 관리 -->
+  <PropertyGroup>
+    <OpenCvSharpVersion>4.13.0.20260627</OpenCvSharpVersion>
+  </PropertyGroup>
+
+</Project>

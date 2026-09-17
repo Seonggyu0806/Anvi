@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DiePipeline.App/DiePipeline.App.csproj" />
+    <Project Path="src/DiePipeline.Core/DiePipeline.Core.csproj" />
+    <Project Path="src/DiePipeline.Cv/DiePipeline.Cv.csproj" />
+    <Project Path="src/DiePipeline.Wafer/DiePipeline.Wafer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DiePipeline.Tests/DiePipeline.Tests.csproj" />
+  </Folder>
+</Solution>

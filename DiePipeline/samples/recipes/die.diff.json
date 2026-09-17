@@ -1,0 +1,60 @@
+{
+  "recipeId": "die.diff.v1",
+  "description": "die-to-die 기본 검사 — 교수님 case1.golden.diff.json 과 같은 흐름",
+
+  "contextInputs": [ "roi", "chipRegions" ],
+
+  "pipeline": {
+    "nodes": [
+      {
+        "id": "golden",
+        "type": "Combine",
+        "inputs": { "regions": "chipRegions" },
+        "outputs": { "result": "golden" },
+        "params": { "strategy": "Median" }
+      },
+      {
+        "id": "normalize",
+        "type": "Normalize",
+        "inputs": { "src": "golden" },
+        "outputs": { "result": "goldenNorm" },
+        "params": { "method": "GaussianBlur", "kernelSize": 5, "sigma": 1.2 }
+      },
+      {
+        "id": "align",
+        "type": "Align",
+        "inputs": { "src": "goldenNorm", "reference": "roi" },
+        "outputs": { "result": "goldenAligned" },
+        "params": { "method": "Translation", "minResponse": 0.3, "maxShiftPx": 20 }
+      },
+      {
+        "id": "diff",
+        "type": "Difference",
+        "inputs": { "test": "roi", "golden": "goldenAligned" },
+        "outputs": { "result": "diff" },
+        "params": { "windowSize": 3, "diffPolicy": "Absolute", "neighborMode": "MinMax" }
+      },
+      {
+        "id": "clean",
+        "type": "Filter",
+        "inputs": { "src": "diff" },
+        "outputs": { "result": "filtered" },
+        "params": { "filters": [ { "type": "Median", "kernel": 3 } ] }
+      },
+      {
+        "id": "binarize",
+        "type": "Binarize",
+        "inputs": { "src": "filtered" },
+        "outputs": { "result": "mask" },
+        "params": { "method": "Threshold", "value": 0.12 }
+      },
+      {
+        "id": "label",
+        "type": "Label",
+        "inputs": { "mask": "mask", "intensity": "roi" },
+        "outputs": { "result": "defectList" },
+        "params": { "connectivity": 8, "minArea": 5, "maxArea": 100000 }
+      }
+    ]
+  }
+}
