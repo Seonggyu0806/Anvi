@@ -6,6 +6,7 @@ using DiePipeline.Core.Imaging;
 using DiePipeline.Core.Pipeline;
 using DiePipeline.Core.Registry;
 using DiePipeline.Cv;
+using DiePipeline.Cv.Algorithms;
 using DiePipeline.Cv.Imaging;
 using DiePipeline.Wafer.Config;
 using DiePipeline.Wafer.Domain;
@@ -53,7 +54,41 @@ public static class WaferCommand
 
         using IImageSource source = ImageSource.Open(options.ImagePath);
 
-        DieGrid grid = DieGridBuilder.Build(options.Spec);
+        // ★ 정렬이 먼저다. 웨이퍼가 어떻게 놓였는지를 모르면 격자를 어디에 놓을지 알 수 없다.
+        WaferAlignment alignment = WaferAlignment.Identity;
+
+        if (options.MarkPath is not null)
+        {
+            AlignmentResult solved = SolveAlignment(source, options);
+
+            PrintAlignment(solved);
+
+            // ★★ 못 믿겠으면 <b>검사를 시작조차 하지 않는다.</b>
+            //   정렬이 틀리면 웨이퍼 전체가 밀린 자리를 검사하고, 결과는 "오검 천 개" 로만 보인다.
+            //   원인을 못 찾는다 — 2주차 정합 사고의 웨이퍼판이다.
+            if (!solved.Accepted)
+            {
+                Console.Error.WriteLine($"정렬을 믿을 수 없어 검사를 하지 않았습니다 — {solved.Rejection}");
+                return 5;
+            }
+
+            alignment = solved.Alignment;
+
+            // ★ die 를 펴서 읽는 warp read 가 아직 없다. 여기서 미리 막지 않으면
+            //   die 를 전부 검사한 뒤 마지막 좌표 단계에서 터진다 — 그만큼이 헛일이다.
+            //   "안 될 일은 시작하기 전에 안다" 가 fail-loud 의 요점이다.
+            if (Math.Abs(alignment.RotationDeg) > AbsoluteTransform.MaxRotationDegWithoutWarp)
+            {
+                Console.Error.WriteLine(
+                    $"정렬은 풀렸지만({alignment.RotationDeg:F3}°) 검사를 하지 않았습니다 — "
+                    + $"die 를 펴서 읽는 warp read 가 없어 {AbsoluteTransform.MaxRotationDegWithoutWarp}° 까지만 "
+                    + "좌표를 믿을 수 있습니다. 기울기가 더 작은 원본을 쓰거나 warp read 를 붙이세요");
+
+                return 5;
+            }
+        }
+
+        DieGrid grid = DieGridBuilder.Build(options.Spec, alignment);
 
         PrintHeader(options, source, grid, need);
 
@@ -76,9 +111,9 @@ public static class WaferCommand
 
         clock.Stop();
 
-        // 모으기 → 좌표 변환. 정렬은 아직 안 붙었으니 항등 정렬이다.
+        // 모으기 → 좌표 변환. 표식을 안 줬으면 항등 정렬이다.
         WaferDefectList found = AbsoluteTransform.Transform(
-            DefectCollector.Collect(run.Dies), grid, WaferAlignment.Identity);
+            DefectCollector.Collect(run.Dies), grid, alignment);
 
         // 샘플링은 맨 끝이다 — 검사를 덜 하는 게 아니라 다 하고 결과만 추린다.
         WaferDefectList defects = WaferSampler.Sample(found, options.Sampling);
@@ -145,6 +180,54 @@ public static class WaferCommand
                 golden.Dispose();
             }
         }
+    }
+
+    /// <summary>
+    /// 표식을 찾아 웨이퍼가 어떻게 놓였는지 푼다.
+    ///
+    /// <para>★ 지금은 <b>사진 전체</b>를 뒤진다. 우리 시험용 그림은 작아서 괜찮지만,
+    /// 기가픽셀 원본에서는 이렇게 못 한다 — 축소본으로 대충 찾고 그 둘레만 원해상도로 다시 보는
+    /// 방식이 필요하다. 겪지 않은 문제라 지금은 안 만든다.</para>
+    /// </summary>
+    private static AlignmentResult SolveAlignment(IImageSource source, Args options)
+    {
+        using Mat template = ImageFile.LoadGrayF32(options.MarkPath!);
+        using Mat scene = source.ReadRegion(new Roi(0, 0, source.Width, source.Height));
+
+        MatchList marks = TemplateMatchers.FindAll(scene, template, new MatchOptions
+        {
+            MinScore = options.Align.MinScore,
+
+            // 기대 위치보다 넉넉히 찾아 두고 짝짓기에서 고른다 — 여분이 나오는 건 정상이다.
+            MaxMatches = Math.Max(4, options.Expected.Count * 2),
+        });
+
+        Console.WriteLine($"표식    {options.MarkPath}  ({template.Cols}×{template.Rows}) · "
+                          + $"사진에서 {marks.Count}군데 찾음");
+
+        foreach (Match mark in marks.Items)
+        {
+            Console.WriteLine($"        ({mark.Location.X:F2},{mark.Location.Y:F2})  점수 {mark.Score:F4}");
+        }
+
+        return AlignmentSolver.Solve(marks, options.Expected, options.Align);
+    }
+
+    private static void PrintAlignment(AlignmentResult solved)
+    {
+        WaferAlignment placed = solved.Alignment;
+
+        Console.WriteLine($"정렬    각도 {placed.RotationDeg:F4}° · 배율 {placed.Scale:F4} · "
+                          + $"die(0,0) 자리 ({placed.Origin.X:F1},{placed.Origin.Y:F1})");
+        Console.WriteLine($"        짝 {solved.PairCount}개 · 어긋남 {solved.ResidualPx:F2}px · "
+                          + $"배율추정 {solved.ImpliedScale:F4} · 점수 {placed.MeanScore:F3}");
+
+        if (!solved.Accepted)
+        {
+            Console.WriteLine($"        ✗ {solved.Rejection}");
+        }
+
+        Console.WriteLine();
     }
 
     /// <summary>
@@ -323,6 +406,20 @@ public static class WaferCommand
         /// <summary>기본은 <see cref="SamplingMode.All"/> — 안 시키면 아무것도 안 덜어낸다.</summary>
         public SamplingOptions Sampling { get; init; } = new();
 
+        /// <summary>정렬 표식 조각. <c>null</c> 이면 정렬을 안 한다(반듯하게 놓였다고 본다).</summary>
+        public string? MarkPath { get; init; }
+
+        /// <summary>
+        /// 표식들이 <b>설계상</b> 어디에 있어야 하는가.
+        ///
+        /// ★ <b>die(0,0) 을 (0,0) 으로 본 좌표</b>다. 사진 좌표가 아니다 —
+        ///   사진 좌표는 웨이퍼가 어떻게 놓였느냐에 따라 매번 달라지니 설계값이 될 수 없다.
+        ///   이 규약 덕에 풀어낸 원점이 곧 "die(0,0) 이 실제로 놓인 자리" 가 된다.
+        /// </summary>
+        public IReadOnlyList<PointF> Expected { get; init; } = [];
+
+        public AlignmentOptions Align { get; init; } = new();
+
         public static Args Parse(string[] args)
         {
             string? image = null;
@@ -339,6 +436,10 @@ public static class WaferCommand
             int edgeRings = 0;
             NeighborStrategy strategy = NeighborStrategy.SameRow1;
             int goldens = 3;
+            string? markPath = null;
+            List<PointF> expected = [];
+            double alignMinScore = new AlignmentOptions().MinScore;
+            double alignMaxAngle = new AlignmentOptions().MaxAngleDeg;
             SamplingMode sampleMode = SamplingMode.All;
             int sampleCount = 200;
             int sampleSeed = 1;
@@ -357,6 +458,21 @@ public static class WaferCommand
                     case "--goldens": goldens = Number(Next(args, ref i, flag), flag); break;
                     case "--edge-rings": edgeRings = Number(Next(args, ref i, flag), flag); break;
                     case "--neighbors": strategy = ParseStrategy(Next(args, ref i, flag)); break;
+                    case "--mark": markPath = Next(args, ref i, flag); break;
+                    case "--align-min-score": alignMinScore = Decimal(Next(args, ref i, flag), flag); break;
+                    case "--align-max-angle": alignMaxAngle = Decimal(Next(args, ref i, flag), flag); break;
+
+                    case "--expect":
+                        string[] spot = Next(args, ref i, flag).Split(',');
+
+                        if (spot.Length != 2)
+                        {
+                            throw new ArgumentException("--expect 는 x,y 형식이어야 합니다 (예: -40,-40)");
+                        }
+
+                        expected.Add(new PointF(Decimal(spot[0], flag), Decimal(spot[1], flag)));
+                        break;
+
                     case "--sample": sampleMode = ParseSampling(Next(args, ref i, flag)); break;
                     case "--sample-count": sampleCount = Number(Next(args, ref i, flag), flag); break;
                     case "--sample-seed": sampleSeed = Number(Next(args, ref i, flag), flag); break;
@@ -406,6 +522,27 @@ public static class WaferCommand
                 throw new ArgumentException("--e1 <레시피> 는 반드시 있어야 합니다 — E1 die 를 검사할 레시피입니다");
             }
 
+            if (markPath is not null && expected.Count < 2)
+            {
+                throw new ArgumentException(
+                    $"--mark 을 줬으면 --expect 를 2개 이상 줘야 합니다 (현재 {expected.Count}개) — "
+                    + "표식 하나로는 얼마나 밀렸는지만 알고 얼마나 돌았는지를 모릅니다");
+            }
+
+            if (markPath is null && expected.Count > 0)
+            {
+                throw new ArgumentException("--expect 만 있고 --mark 이 없습니다 — 찾을 조각을 같이 주세요");
+            }
+
+            // ★ 정렬이 die(0,0) 자리를 풀어 주므로, 설계 원점은 0 이어야 한다.
+            //   둘 다 주면 같은 이동이 두 번 들어가 격자가 통째로 밀린다.
+            if (markPath is not null && (originX != 0 || originY != 0))
+            {
+                throw new ArgumentException(
+                    "--mark 과 --origin 은 같이 못 씁니다 — 정렬이 die(0,0) 자리를 알아내므로 "
+                    + "--origin 까지 주면 이동이 두 번 들어갑니다");
+            }
+
             return new Args
             {
                 ImagePath = image,
@@ -413,6 +550,9 @@ public static class WaferCommand
                 E0Path = e0,
                 Strategy = strategy,
                 GoldenWanted = goldens,
+                MarkPath = markPath,
+                Expected = expected,
+                Align = new AlignmentOptions { MinScore = alignMinScore, MaxAngleDeg = alignMaxAngle },
                 Sampling = new SamplingOptions
                 {
                     Mode = sampleMode,
@@ -434,6 +574,22 @@ public static class WaferCommand
                     EdgeRings = edgeRings,
                 },
             };
+        }
+
+        /// <summary>소수점 있는 값.</summary>
+        private static double Decimal(string text, string flag)
+        {
+            if (double.TryParse(text, System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double value))
+            {
+                return value;
+            }
+
+            string hint = text.Contains("--", StringComparison.Ordinal)
+                ? " — 값과 다음 옵션 사이에 띄어쓰기가 빠진 것 같습니다"
+                : string.Empty;
+
+            throw new ArgumentException($"{flag} 의 값이 숫자가 아닙니다: '{text}'{hint}");
         }
 
         /// <summary>한 개만 주면 가로·세로 같은 값으로 본다 — 정사각 die 가 흔하다.</summary>
