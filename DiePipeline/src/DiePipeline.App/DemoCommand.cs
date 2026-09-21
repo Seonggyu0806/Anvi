@@ -230,9 +230,9 @@ public static class DemoCommand
                 switch (flag)
                 {
                     case "-o" or "--out": outPath = Next(args, ref i, flag); break;
-                    case "--pitch": pitch = int.Parse(Next(args, ref i, flag)); break;
-                    case "--defects": defects = int.Parse(Next(args, ref i, flag)); break;
-                    case "--seed": seed = int.Parse(Next(args, ref i, flag)); break;
+                    case "--pitch": pitch = Number(Next(args, ref i, flag), flag); break;
+                    case "--defects": defects = Number(Next(args, ref i, flag), flag); break;
+                    case "--seed": seed = Number(Next(args, ref i, flag), flag); break;
 
                     case "--grid":
                         string[] parts = Next(args, ref i, flag).Split(',');
@@ -242,8 +242,8 @@ public static class DemoCommand
                             throw new ArgumentException("--grid 는 열,행 형식이어야 합니다 (예: 4,3)");
                         }
 
-                        cols = int.Parse(parts[0]);
-                        rows = int.Parse(parts[1]);
+                        cols = Number(parts[0], flag);
+                        rows = Number(parts[1], flag);
                         break;
 
                     default:
@@ -275,6 +275,26 @@ public static class DemoCommand
                 Defects = defects,
                 Seed = seed,
             };
+        }
+
+        /// <summary>
+        /// 숫자로 읽는다. 실패하면 <b>어느 옵션의 어떤 값</b>이었는지 말해 준다.
+        ///
+        /// ★ <c>int.Parse</c> 그대로 쓰면 "'100--sample' was not in a correct format" 만 나온다.
+        ///   어느 옵션인지도, 왜인지도 모른다. 실제로 <b>띄어쓰기 하나가 빠져서</b> 난 오류였다.
+        /// </summary>
+        private static int Number(string text, string flag)
+        {
+            if (int.TryParse(text, out int value))
+            {
+                return value;
+            }
+
+            string hint = text.Contains("--", StringComparison.Ordinal)
+                ? " — 값과 다음 옵션 사이에 띄어쓰기가 빠진 것 같습니다"
+                : string.Empty;
+
+            throw new ArgumentException($"{flag} 의 값이 숫자가 아닙니다: '{text}'{hint}");
         }
 
         private static string Next(string[] args, ref int i, string flag)

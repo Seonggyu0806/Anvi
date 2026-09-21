@@ -77,17 +77,25 @@ public static class WaferCommand
         clock.Stop();
 
         // 모으기 → 좌표 변환. 정렬은 아직 안 붙었으니 항등 정렬이다.
-        WaferDefectList defects = AbsoluteTransform.Transform(
+        WaferDefectList found = AbsoluteTransform.Transform(
             DefectCollector.Collect(run.Dies), grid, WaferAlignment.Identity);
+
+        // 샘플링은 맨 끝이다 — 검사를 덜 하는 게 아니라 다 하고 결과만 추린다.
+        WaferDefectList defects = WaferSampler.Sample(found, options.Sampling);
 
         PrintMap(grid, run);
         PrintDefects(defects);
-        PrintSummary(run, defects, clock.Elapsed.TotalMilliseconds);
+        PrintSummary(run, found, defects, clock.Elapsed.TotalMilliseconds);
 
         // ★ 실패가 있으면 결함 유무보다 먼저 알린다.
         //   "결함 0개" 로 보이는데 사실은 안 본 것 — 그게 제일 위험한 상태다.
+        //
+        // ★★ 끝값은 샘플링 "전"(found) 기준이다.
+        //   끝값은 사람이 아니라 <b>스크립트</b>가 읽는다. 샘플링은 화면에 몇 개를 띄울지일 뿐인데,
+        //   그걸로 끝값을 정하면 "--sample-count 10 으로 잘랐더니 결함 5000개짜리 웨이퍼가
+        //   통과로 찍히는" 일이 생긴다. 화면은 줄여도 <b>판정은 못 줄인다.</b>
         return run.Failures.Any() ? 4
-            : defects.Count == 0 ? 0
+            : found.Count == 0 ? 0
             : 3;
     }
 
@@ -173,6 +181,7 @@ public static class WaferCommand
                               ? $" · 최대 {options.GoldenWanted}장"
                               : string.Empty));
         Console.WriteLine($"골든    최소 {need.Minimum}장 — {need.Reason}");
+        Console.WriteLine($"샘플링  {Describe(options.Sampling)}");
 
         if (need.Warning is not null)
         {
@@ -233,8 +242,21 @@ public static class WaferCommand
         Console.WriteLine();
     }
 
-    private static void PrintSummary(WaferRunResult run, WaferDefectList defects, double milliseconds)
+    /// <param name="found">샘플링 <b>전</b>. 실제로 찾아낸 전부.</param>
+    /// <param name="defects">샘플링 <b>후</b>. 화면에 보여준 것.</param>
+    private static void PrintSummary(
+        WaferRunResult run, WaferDefectList found, WaferDefectList defects, double milliseconds)
     {
+        // ★ 샘플링으로 몇 개를 덜어냈는지 반드시 말한다.
+        //   조용히 줄이면 "결함이 이것뿐" 으로 읽힌다 — 이 프로젝트에서 제일 위험한 모양이다.
+        if (defects.Count != found.Count)
+        {
+            Console.WriteLine($"샘플링  {found.Count}개 중 {defects.Count}개만 남겼습니다 "
+                              + $"({found.Count - defects.Count}개는 화면에서 뺀 것이지 없는 게 아닙니다)");
+            Console.WriteLine("        ↑ 위 웨이퍼 맵은 샘플링 전 기준입니다");
+            Console.WriteLine();
+        }
+
         Console.WriteLine($"die {run.DieCount}개 · 결함 {defects.Count}개 "
                           + $"(E1 {defects.E1.Count()} · E0 {defects.E0.Count()})");
 
@@ -273,6 +295,17 @@ public static class WaferCommand
         _ => strategy.ToString(),
     };
 
+    private static string Describe(SamplingOptions sampling) => sampling.Mode switch
+    {
+        SamplingMode.All => "안 함 — 찾은 것 전부",
+        SamplingMode.BigSize => $"면적 큰 순서로 {sampling.Count}개",
+        SamplingMode.Range => $"면적 {sampling.MinArea}~"
+                              + (sampling.MaxArea == int.MaxValue ? "제한없음" : $"{sampling.MaxArea}")
+                              + " 인 것만",
+        SamplingMode.Random => $"무작위 {sampling.Count}개 · 씨 {sampling.Seed}",
+        _ => sampling.Mode.ToString(),
+    };
+
     private sealed record Args
     {
         public required string ImagePath { get; init; }
@@ -286,6 +319,9 @@ public static class WaferCommand
         public NeighborStrategy Strategy { get; init; } = NeighborStrategy.SameRow1;
 
         public int GoldenWanted { get; init; } = 3;
+
+        /// <summary>기본은 <see cref="SamplingMode.All"/> — 안 시키면 아무것도 안 덜어낸다.</summary>
+        public SamplingOptions Sampling { get; init; } = new();
 
         public static Args Parse(string[] args)
         {
@@ -303,6 +339,11 @@ public static class WaferCommand
             int edgeRings = 0;
             NeighborStrategy strategy = NeighborStrategy.SameRow1;
             int goldens = 3;
+            SamplingMode sampleMode = SamplingMode.All;
+            int sampleCount = 200;
+            int sampleSeed = 1;
+            int sampleMin = 0;
+            int sampleMax = int.MaxValue;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -313,24 +354,41 @@ public static class WaferCommand
                     case "-i" or "--image": image = Next(args, ref i, flag); break;
                     case "--e1": e1 = Next(args, ref i, flag); break;
                     case "--e0": e0 = Next(args, ref i, flag); break;
-                    case "--goldens": goldens = int.Parse(Next(args, ref i, flag)); break;
-                    case "--edge-rings": edgeRings = int.Parse(Next(args, ref i, flag)); break;
+                    case "--goldens": goldens = Number(Next(args, ref i, flag), flag); break;
+                    case "--edge-rings": edgeRings = Number(Next(args, ref i, flag), flag); break;
                     case "--neighbors": strategy = ParseStrategy(Next(args, ref i, flag)); break;
+                    case "--sample": sampleMode = ParseSampling(Next(args, ref i, flag)); break;
+                    case "--sample-count": sampleCount = Number(Next(args, ref i, flag), flag); break;
+                    case "--sample-seed": sampleSeed = Number(Next(args, ref i, flag), flag); break;
+
+                    case "--sample-area":
+                        // ★ 여기만 값 하나를 안 받는다. "--sample-area 500" 이 "500 이상" 인지
+                        //   "딱 500" 인지 읽는 사람마다 다르게 읽힌다. 둘 다 적게 한다.
+                        string[] band = Next(args, ref i, flag).Split(',');
+
+                        if (band.Length != 2)
+                        {
+                            throw new ArgumentException("--sample-area 는 최소,최대 형식이어야 합니다 (예: 500,5000)");
+                        }
+
+                        sampleMin = Number(band[0], flag);
+                        sampleMax = Number(band[1], flag);
+                        break;
 
                     case "--grid":
-                        (cols, rows) = Pair(Next(args, ref i, flag), "--grid 는 열,행 형식이어야 합니다 (예: 4,3)");
+                        (cols, rows) = Pair(Next(args, ref i, flag), flag, "--grid 는 열,행 형식이어야 합니다 (예: 4,3)");
                         break;
 
                     case "--pitch":
-                        (pitchX, pitchY) = Pair(Next(args, ref i, flag), "--pitch 는 n 또는 x,y 형식이어야 합니다");
+                        (pitchX, pitchY) = Pair(Next(args, ref i, flag), flag, "--pitch 는 n 또는 x,y 형식이어야 합니다");
                         break;
 
                     case "--die":
-                        (dieWidth, dieHeight) = Pair(Next(args, ref i, flag), "--die 는 n 또는 w,h 형식이어야 합니다");
+                        (dieWidth, dieHeight) = Pair(Next(args, ref i, flag), flag, "--die 는 n 또는 w,h 형식이어야 합니다");
                         break;
 
                     case "--origin":
-                        (originX, originY) = Pair(Next(args, ref i, flag), "--origin 은 x,y 형식이어야 합니다");
+                        (originX, originY) = Pair(Next(args, ref i, flag), flag, "--origin 은 x,y 형식이어야 합니다");
                         break;
 
                     default:
@@ -355,6 +413,14 @@ public static class WaferCommand
                 E0Path = e0,
                 Strategy = strategy,
                 GoldenWanted = goldens,
+                Sampling = new SamplingOptions
+                {
+                    Mode = sampleMode,
+                    Count = sampleCount,
+                    Seed = sampleSeed,
+                    MinArea = sampleMin,
+                    MaxArea = sampleMax,
+                },
                 Spec = new WaferSpec
                 {
                     Cols = cols,
@@ -371,7 +437,7 @@ public static class WaferCommand
         }
 
         /// <summary>한 개만 주면 가로·세로 같은 값으로 본다 — 정사각 die 가 흔하다.</summary>
-        private static (int First, int Second) Pair(string text, string message)
+        private static (int First, int Second) Pair(string text, string flag, string message)
         {
             string[] parts = text.Split(',');
 
@@ -380,10 +446,42 @@ public static class WaferCommand
                 throw new ArgumentException(message);
             }
 
-            int first = int.Parse(parts[0]);
+            int first = Number(parts[0], flag);
 
-            return (first, parts.Length == 2 ? int.Parse(parts[1]) : first);
+            return (first, parts.Length == 2 ? Number(parts[1], flag) : first);
         }
+
+        /// <summary>
+        /// 숫자로 읽는다. 실패하면 <b>어느 옵션의 어떤 값</b>이었는지 말해 준다.
+        ///
+        /// ★ <c>int.Parse</c> 그대로 쓰면 "'100--sample' was not in a correct format" 만 나온다.
+        ///   어느 옵션인지도, 왜인지도 모른다. 실제로 <b>띄어쓰기 하나가 빠져서</b> 난 오류였다 —
+        ///   <c>--pitch 100--sample</c> 이 한 덩어리로 들어왔다.
+        ///   그 가능성을 메시지가 먼저 말해 주면 1초 만에 잡힌다.
+        /// </summary>
+        private static int Number(string text, string flag)
+        {
+            if (int.TryParse(text, out int value))
+            {
+                return value;
+            }
+
+            string hint = text.Contains("--", StringComparison.Ordinal)
+                ? " — 값과 다음 옵션 사이에 띄어쓰기가 빠진 것 같습니다"
+                : string.Empty;
+
+            throw new ArgumentException($"{flag} 의 값이 숫자가 아닙니다: '{text}'{hint}");
+        }
+
+        private static SamplingMode ParseSampling(string text) => text switch
+        {
+            "none" or "all" => SamplingMode.All,
+            "bigsize" or "big" => SamplingMode.BigSize,
+            "range" => SamplingMode.Range,
+            "random" => SamplingMode.Random,
+            _ => throw new ArgumentException(
+                $"--sample 은 none | bigsize | range | random 이어야 합니다 (받은 값: {text})"),
+        };
 
         private static NeighborStrategy ParseStrategy(string text) => text switch
         {

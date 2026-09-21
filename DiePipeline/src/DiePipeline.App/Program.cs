@@ -314,6 +314,13 @@ public static class Program
               --neighbors <법>  same-row1 | nearest      기본 same-row1
               --goldens <n>     nearest 일 때 최대 장수  기본 3
 
+              결함이 너무 많을 때 — 검사는 다 하고 결과만 추린다
+              --sample <법>       none | bigsize | range | random   기본 none
+              --sample-count <n>  bigsize·random 에서 남길 개수      기본 200
+              --sample-seed <n>   random 의 씨                       기본 1
+              --sample-area <최소,최대>   range 에서 남길 면적대 (예: 500,5000)
+                                  ★ 덜어낸 개수는 항상 같이 찍는다 — 조용히 줄이지 않는다
+
               ⚠ 격자·피치는 제품 배치 정보다. 명령줄에만 쓰고 문서·커밋에 남기지 않는다
 
             demo 전용 (데이터가 필요 없다 — 그림을 코드로 그린다)
