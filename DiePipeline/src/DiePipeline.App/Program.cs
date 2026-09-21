@@ -54,6 +54,8 @@ public static class Program
         {
             "run" => Inspect(Options.Parse(rest, needRecipe: true)),
             "probe" => Probe(Options.Parse(rest, needRecipe: false)),
+            "wafer" => WaferCommand.Run(rest),
+            "demo" => DemoCommand.Run(rest),
             _ => Unknown(args[0]),
         };
     }
@@ -283,6 +285,8 @@ public static class Program
             사용법
               diepipe run   -r <레시피.json> -i <이미지> [옵션]     레시피를 돌린다
               diepipe probe -i <이미지> [옵션]                      원본 생김새를 본다
+              diepipe wafer -i <이미지> --e1 <레시피.json> [옵션]   웨이퍼 한 장을 통째로
+              diepipe demo  -o <경로.bmp> [옵션]                   시험용 합성 웨이퍼를 그린다
 
             셀 자르기 (가로로 이어진 칸을 잘라 하나를 검사, 나머지를 이웃으로 쓴다)
               --pitch <n>       셀 한 변(px)          기본 100
@@ -299,7 +303,29 @@ public static class Program
               --save-mask <경로>  이진 마스크를 PNG로 저장
               --mask-key <이름>   저장할 칠판 이름표    기본 mask
 
-            끝값: 0 = 결함 없음 · 3 = 결함 있음 · 1 = 오류 · 2 = 레시피 오류
+            wafer 전용
+              --e1 <레시피>     E1 die 레시피 (필수). 이웃으로 골든을 만든다
+              --e0 <레시피>     E0 die 레시피. 골든 없이 단일 임계 (die.dark)
+              --grid <열,행>    die 격자                기본 4,4
+              --pitch <n|x,y>   die 원점 사이 간격       기본 100
+              --die <n|w,h>     die 한 장 크기           기본 = 피치
+              --origin <x,y>    첫 die 의 왼쪽 위        기본 0,0
+              --edge-rings <n>  바깥 몇 겹을 E0 로 볼까  기본 0 (전부 E1)
+              --neighbors <법>  same-row1 | nearest      기본 same-row1
+              --goldens <n>     nearest 일 때 최대 장수  기본 3
+
+              ⚠ 격자·피치는 제품 배치 정보다. 명령줄에만 쓰고 문서·커밋에 남기지 않는다
+
+            demo 전용 (데이터가 필요 없다 — 그림을 코드로 그린다)
+              -o <경로.bmp>     어디에 저장할까 (필수)
+              --grid <열,행>    die 격자                기본 4,3
+              --pitch <n>       die 한 변               기본 100
+              --defects <n>     심을 결함 수            기본 3
+              --seed <n>        어디에 심을지 정하는 씨  기본 1
+                                ★ 씨가 같으면 그림도 같다 — 어제 결과와 비교할 수 있다
+
+            끝값: 0 = 결함 없음 · 3 = 결함 있음 · 4 = 검사가 터진 die 있음
+                  1 = 오류 · 2 = 레시피 오류
 
             ⚠ 실데이터는 레포 밖에 두고 경로로만 넘긴다. 잘라낸 것도 레포에 넣지 않는다.
             """);

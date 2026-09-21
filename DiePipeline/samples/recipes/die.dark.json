@@ -1,0 +1,25 @@
+{
+  "recipeId": "die.dark",
+  "description": "E0(변두리) die 용 — 골든이 필요 없다. 이웃이 모자라 die-to-die 가 성립하지 않는 자리에서, '이 정도로 새까만 건 정상일 리 없다'는 절대 임계로 잡는다. 배경은 0.25 아래로 안 내려가므로 0.15 로 자르면 배경·패턴과 절대 안 겹친다. 한계: 밝은 결함은 패턴과 구분이 안 돼 못 잡는다(그건 E1 소관). 교수님 die.dark.roimono 와 같은 구성.",
+
+  "contextInputs": [ "roi" ],
+
+  "pipeline": {
+    "nodes": [
+      {
+        "id": "binarize",
+        "type": "Binarize",
+        "inputs": { "src": "roi" },
+        "outputs": { "result": "mask" },
+        "params": { "method": "Range", "low": 0.0, "high": 0.15 }
+      },
+      {
+        "id": "label",
+        "type": "Label",
+        "inputs": { "mask": "mask", "intensity": "roi" },
+        "outputs": { "result": "defectList" },
+        "params": { "connectivity": 8, "minArea": 200 }
+      }
+    ]
+  }
+}
