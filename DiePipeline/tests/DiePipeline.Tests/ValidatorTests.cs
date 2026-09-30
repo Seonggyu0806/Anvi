@@ -50,11 +50,25 @@ public sealed class ValidatorTests
         public IPipelineNode Create(NodeConfig config) => new NoopNode(config.Id);
     }
 
+    /// <summary>입력이 둘인 노드 — '끌 수 있는가'를 가르는 기준을 재는 데 쓴다.</summary>
+    private sealed class DifferenceFactory : INodeFactory
+    {
+        public string TypeName => "Difference";
+
+        public INodeDescriptor Descriptor { get; } = new NodeDescriptor("Difference", "검출",
+            inputs: [new PortDescriptor("test", "검사 이미지"), new PortDescriptor("golden", "골든")],
+            outputs: [new PortDescriptor("result", "차이")],
+            @params: []);
+
+        public IPipelineNode Create(NodeConfig config) => new NoopNode(config.Id);
+    }
+
     private static NodeRegistry Registry()
     {
         NodeRegistry registry = new();
         registry.Register(new BlurFactory());
         registry.Register(new CombineFactory());
+        registry.Register(new DifferenceFactory());
         return registry;
     }
 
@@ -218,5 +232,75 @@ public sealed class ValidatorTests
 
         Assert.Single(error.Errors);
         Assert.Contains("레시피 't'에 오류 1개", error.Message);
+    }
+
+    // ───────────────────────── 노드 끄기(Enabled) ─────────────────────────
+    //
+    // 끄면 그 노드의 출력이 안 생긴다. 대신 '출력 이름표 = 입력 이름표'로 별칭이 걸려서
+    // 뒷 노드가 레시피를 안 고치고도 윗 것을 읽는다. 그래서 물려줄 것이 하나로 정해져야 한다.
+
+    /// <summary>끈 노드의 출력 이름표는 그대로 읽을 수 있다 — 입력이 대신 물려진다.</summary>
+    [Fact]
+    public void 꺼진_노드의_이름표는_입력으로_이어진다()
+        => Assert.Empty(RecipeValidator.Validate(
+            Parse("""
+                { "id": "b", "type": "Blur", "enabled": false,
+                  "inputs": { "src": "roi" }, "outputs": { "result": "blurred" } },
+                { "id": "c", "type": "Blur", "inputs": { "src": "blurred" }, "outputs": { "result": "x" } }
+                """),
+            Registry()));
+
+    /// <summary>★ 입력이 둘이면 뒷 노드에 무엇을 물려줄지 정해지지 않는다.</summary>
+    [Fact]
+    public void 입력이_둘인_노드는_끌_수_없다()
+    {
+        IReadOnlyList<string> errors = RecipeValidator.Validate(
+            Parse("""
+                { "id": "d", "type": "Difference", "enabled": false,
+                  "inputs": { "test": "roi", "golden": "roi" }, "outputs": { "result": "diff" } }
+                """),
+            Registry());
+
+        Assert.Contains(errors, e => e.Contains("끌 수 없습니다"));
+    }
+
+    /// <summary>
+    /// ★★ 종류가 바뀌는 노드를 끄면 <b>뒷 노드가 다른 종류를 받게 된다</b>.
+    ///   Combine은 ImageList를 받아 Image를 내놓으므로, 끄면 뒷 노드에 ImageList가 흘러간다.
+    ///   이걸 위해 새 검사를 만들지 않았다 — 이미 있는 <b>종류 검사</b>가 대신 잡는다.
+    /// </summary>
+    [Fact]
+    public void 종류가_바뀌는_노드를_끄면_뒷_노드가_잡는다()
+    {
+        const string Nodes = """
+            { "id": "g", "type": "Combine", {{끄기}}
+              "inputs": { "regions": "chipRegions" }, "outputs": { "result": "golden" } },
+            { "id": "b", "type": "Blur", "inputs": { "src": "golden" }, "outputs": { "result": "x" } }
+            """;
+
+        const string Both = """[ "roi", "chipRegions" ]""";
+
+        // 켜 두면 golden은 Image다 — 아무 문제 없다.
+        Assert.Empty(RecipeValidator.Validate(Parse(Nodes.Replace("{{끄기}}", ""), Both), Registry()));
+
+        // 끄면 golden이 chipRegions(ImageList)로 이어진다 — Blur는 Image를 받는데.
+        IReadOnlyList<string> errors =
+            RecipeValidator.Validate(Parse(Nodes.Replace("{{끄기}}", "\"enabled\": false,"), Both), Registry());
+
+        Assert.Contains(errors, e => e.Contains("Image를 받는데") && e.Contains("ImageList"));
+    }
+
+    /// <summary>껐다고 파라미터를 봐주면 <b>다시 켜는 순간</b> 터진다.</summary>
+    [Fact]
+    public void 꺼진_노드도_파라미터를_검사한다()
+    {
+        IReadOnlyList<string> errors = RecipeValidator.Validate(
+            Parse("""
+                { "id": "b", "type": "Blur", "enabled": false, "inputs": { "src": "roi" },
+                  "outputs": { "result": "x" }, "params": { "kernel": 4 } }
+                """),
+            Registry());
+
+        Assert.Contains(errors, e => e.Contains("홀수"));
     }
 }

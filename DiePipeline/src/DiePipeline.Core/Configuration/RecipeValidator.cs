@@ -59,8 +59,17 @@ public static class RecipeValidator
             INodeDescriptor descriptor = registry.Describe(node.Type);
 
             CheckInputs(errors, node, descriptor, available);
-            CheckOutputs(errors, node, descriptor, available);
 
+            if (node.Enabled)
+            {
+                CheckOutputs(errors, node, descriptor, available);
+            }
+            else
+            {
+                CheckDisabled(errors, node, descriptor, available);
+            }
+
+            // ★ 꺼진 노드의 파라미터도 검사한다. 껐다고 봐주면 <b>다시 켜는 순간</b> 터진다.
             foreach (ParamDescriptor param in descriptor.Params)
             {
                 foreach (string error in ParamCheck.Validate(param, node.Params))
@@ -145,6 +154,45 @@ public static class RecipeValidator
             }
 
             available[key] = port.Kind;
+        }
+    }
+
+    /// <summary>
+    /// 꺼진 노드 검사. 끄면 이 노드의 출력이 안 생기고, 대신 <b>'출력 이름표 = 입력 이름표'</b>로
+    /// 별칭이 걸린다(NodeRegistry.CreateAll). 그래서 물려줄 것이 <b>하나로 정해져야</b> 한다.
+    /// </summary>
+    private static void CheckDisabled(
+        List<string> errors, NodeConfig node, INodeDescriptor descriptor, Dictionary<string, PortKind> available)
+    {
+        if (descriptor.Inputs.Count != 1 || descriptor.Outputs.Count != 1)
+        {
+            errors.Add($"node '{node.Id}'({node.Type}): 입력 {descriptor.Inputs.Count}개·출력 " +
+                       $"{descriptor.Outputs.Count}개인 노드는 끌 수 없습니다 " +
+                       "(끄면 뒷 노드에 무엇을 물려줄지 정해지지 않습니다. 입력 1개·출력 1개만 끌 수 있습니다)");
+            return;
+        }
+
+        if (!node.Outputs.TryGetValue(descriptor.Outputs[0].Name, out string? key))
+        {
+            errors.Add($"node '{node.Id}'({node.Type}): 출력 포트 '{descriptor.Outputs[0].Name}'이 연결되지 않았습니다");
+            return;
+        }
+
+        if (available.ContainsKey(key))
+        {
+            errors.Add($"node '{node.Id}'({node.Type}): 출력 '{key}'를 이미 다른 노드가 쓰고 있습니다");
+            return;
+        }
+
+        // ★★ 선언된 출력 종류가 아니라 <b>입력이 실제로 물고 있는 종류</b>를 올린다.
+        //   ImageList를 받아 Image를 내놓는 노드(Combine)를 끄면 뒷 노드는 ImageList를 받게 된다.
+        //   그 어긋남을 그대로 흘려보내야 <b>뒷 노드의 종류 검사가 대신 잡아 준다</b> —
+        //   여기서 따로 검사를 만들지 않고 이미 있는 그물에 걸리게 하는 것이다.
+        //   입력이 dangling이면 CheckInputs가 이미 잡았으므로 여기선 아무것도 올리지 않는다.
+        if (node.Inputs.TryGetValue(descriptor.Inputs[0].Name, out string? from)
+            && available.TryGetValue(from, out PortKind passed))
+        {
+            available[key] = passed;
         }
     }
 }

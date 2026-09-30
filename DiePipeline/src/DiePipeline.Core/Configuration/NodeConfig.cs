@@ -18,6 +18,18 @@ public sealed class NodeConfig
     /// <summary>명부의 키. JSON의 "type"과 같은 문자열.</summary>
     public required string Type { get; init; }
 
+    /// <summary>
+    /// 꺼진 노드는 <b>실행에서 통째로 빠진다</b>. 화면의 '노드 끄기' 체크박스가 여기에 붙는다.
+    ///
+    /// ★ 끄면 출력이 안 생기는데 뒷 노드는 그 이름표를 계속 읽는다.
+    ///   그래서 끄는 대신 <b>별칭</b>을 건다 — "이 노드의 출력 = 이 노드의 입력".
+    ///   뒷 노드는 이름표를 그대로 두고도 윗 것을 읽게 된다(NodeRegistry.CreateAll).
+    ///
+    /// ★ 그래서 <b>입력 1개·출력 1개인 노드만 끌 수 있다.</b>
+    ///   입력이 둘이면 "어느 쪽을 물려줄지"가 정해지지 않는다. 검증기가 미리 막는다.
+    /// </summary>
+    public bool Enabled { get; init; } = true;
+
     /// <summary>포트 이름 → 칠판의 이름표. 예: { "src": "roi" }</summary>
     public Dictionary<string, string> Inputs { get; init; } = [];
 

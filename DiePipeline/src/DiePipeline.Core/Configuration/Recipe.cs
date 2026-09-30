@@ -37,7 +37,12 @@ public sealed class RecipeLoadException : Exception
 
 public static class RecipeLoader
 {
-    private static readonly JsonSerializerOptions Options = new()
+    /// <summary>
+    /// 레시피 JSON을 읽고 쓰는 규칙. <b>공개하는 이유</b>: 에디터의 레이아웃 사이드카
+    /// (<c>*.layout.json</c>)가 <b>같은 규칙으로</b> 읽고 써야 하기 때문이다.
+    /// 설정을 따로 만들면 한쪽만 고쳤을 때 조용히 어긋난다.
+    /// </summary>
+    public static readonly JsonSerializerOptions Options = new()
     {
         // JSON은 camelCase("recipeId"), C#은 PascalCase(RecipeId). 대소문자를 무시해 둘을 잇는다.
         PropertyNameCaseInsensitive = true,

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ★ WPF를 참조하지 않는다. net10.0 이라 참조하고 싶어도 못 한다.
+      "화면 없이 테스트가 돈다"를 규칙이 아니라 컴파일러가 지킨다.
+      Core가 OpenCV를 모르게 막아 둔 것과 같은 수법이다.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\DiePipeline.Core\DiePipeline.Core.csproj" />
+  </ItemGroup>
+
+</Project>

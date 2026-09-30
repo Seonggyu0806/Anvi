@@ -66,12 +66,80 @@ public sealed class NodeRegistry
 
     public IPipelineNode Create(NodeConfig config) => Get(config.Type).Create(config);
 
-    /// <summary>레시피의 노드들을 적힌 순서대로 만든다.</summary>
+    /// <summary>
+    /// 레시피의 노드들을 적힌 순서대로 만든다. <b>꺼진 노드는 빼고.</b>
+    ///
+    /// ★ 빼기만 하면 뒷 노드가 없는 이름표를 읽는다. 그래서 <b>별칭</b>을 건다 —
+    ///   꺼진 노드의 '출력 이름표'를 그 노드의 '입력 이름표'로 바꿔치기해서,
+    ///   뒷 노드가 <b>레시피를 한 글자도 안 고치고</b> 윗 것을 그대로 읽게 한다.
+    ///
+    ///   <code>
+    ///   켜짐   roi → [Normalize] → normed → [Difference]
+    ///   꺼짐   roi ┄┄┄┄┄┄┄┄┄┄┄┄┄→ normed → [Difference]   ← normed를 roi로 바꿔 읽는다
+    ///   </code>
+    ///
+    ///   화면에서 체크박스를 껐다 켤 때 레시피 파일을 다시 쓰지 않아도 되는 이유가 이것이다.
+    /// </summary>
     public IReadOnlyList<IPipelineNode> CreateAll(Recipe recipe)
     {
         ArgumentNullException.ThrowIfNull(recipe);
 
-        return [.. recipe.Pipeline.Nodes.Select(Create)];
+        Dictionary<string, string> alias = Aliases(recipe);
+
+        return [.. recipe.Pipeline.Nodes.Where(n => n.Enabled).Select(n => Create(Rewire(n, alias)))];
+    }
+
+    /// <summary>꺼진 노드들의 '출력 이름표 → 입력 이름표' 표.</summary>
+    private static Dictionary<string, string> Aliases(Recipe recipe)
+    {
+        Dictionary<string, string> alias = new(StringComparer.Ordinal);
+
+        foreach (NodeConfig node in recipe.Pipeline.Nodes)
+        {
+            // ★ 입력 1개·출력 1개일 때만 별칭이 성립한다.
+            //   둘 이상이면 "어느 쪽을 물려줄지"가 정해지지 않는다 — 검증기가 미리 오류로 잡는다.
+            //   여기서는 조용히 건너뛴다(검증을 거친 레시피만 온다는 가정).
+            if (!node.Enabled && node.Inputs.Count == 1 && node.Outputs.Count == 1)
+            {
+                alias[node.Outputs.Values.First()] = node.Inputs.Values.First();
+            }
+        }
+
+        return alias;
+    }
+
+    /// <summary>꺼진 노드가 연달아 있을 수 있으므로 별칭을 끝까지 따라간다.</summary>
+    private static string Resolve(string key, Dictionary<string, string> alias)
+    {
+        HashSet<string> seen = new(StringComparer.Ordinal);
+
+        // ★ seen이 없으면 별칭이 고리를 이룰 때 여기서 영원히 돈다.
+        //   검증기가 먼저 막지만, <b>멈추는 조건은 도는 쪽에도 둔다</b> — 무한 루프는 증상이 없다.
+        while (alias.TryGetValue(key, out string? next) && seen.Add(key))
+        {
+            key = next;
+        }
+
+        return key;
+    }
+
+    /// <summary>입력 이름표만 별칭으로 바꾼 사본. 바꿀 게 없으면 원본을 그대로 준다.</summary>
+    private static NodeConfig Rewire(NodeConfig node, Dictionary<string, string> alias)
+    {
+        if (alias.Count == 0 || !node.Inputs.Values.Any(alias.ContainsKey))
+        {
+            return node;
+        }
+
+        return new NodeConfig
+        {
+            Id = node.Id,
+            Type = node.Type,
+            Enabled = node.Enabled,
+            Inputs = node.Inputs.ToDictionary(kv => kv.Key, kv => Resolve(kv.Value, alias), StringComparer.Ordinal),
+            Outputs = node.Outputs,
+            Params = node.Params,
+        };
     }
 
     /// <summary>등록된 모든 디스크립터. WPF 팔레트·문서 생성이 여기서 출발한다.</summary>

@@ -49,10 +49,45 @@ public sealed class RecipeTests
                     : 1);
     }
 
+    /// <summary>입력을 받아 자기 이름을 덧붙여 넘기는 가짜 노드 — 별칭(끄기)을 재는 데 쓴다.</summary>
+    private sealed class RelayNode : IPipelineNode
+    {
+        private readonly string _inKey;
+        private readonly string _outKey;
+
+        public RelayNode(string id, string inKey, string outKey)
+        {
+            Id = id;
+            _inKey = inKey;
+            _outKey = outKey;
+        }
+
+        public string Id { get; }
+
+        public string TypeName => "Relay";
+
+        public void Execute(IPipelineContext context)
+            => context.Set(_outKey, $"{context.Get<string>(_inKey)}>{Id}");
+    }
+
+    private sealed class RelayFactory : INodeFactory
+    {
+        public string TypeName => "Relay";
+
+        public INodeDescriptor Descriptor { get; } = new NodeDescriptor("Relay", "테스트",
+            inputs: [new PortDescriptor("src", "받을 것")],
+            outputs: [new PortDescriptor("result", "넘길 것")],
+            @params: []);
+
+        public IPipelineNode Create(NodeConfig config)
+            => new RelayNode(config.Id, config.Inputs["src"], config.Outputs["result"]);
+    }
+
     private static NodeRegistry Registry()
     {
         NodeRegistry registry = new();
         registry.Register(new EchoFactory());
+        registry.Register(new RelayFactory());
         return registry;
     }
 
@@ -178,5 +213,70 @@ public sealed class RecipeTests
         Assert.Equal("times", times.Name);
         Assert.Equal(typeof(int), times.Type);
         Assert.Equal(1, times.Min);
+    }
+
+    // ───────────────────────── 노드 끄기(Enabled) ─────────────────────────
+
+    /// <summary>a·b를 이어 붙인 레시피. <c>{{끄기}}</c> 자리에 "enabled": false 를 끼워 넣는다.</summary>
+    private static Recipe TwoRelays(string aFlag = "", string bFlag = "")
+        => RecipeLoader.Parse($$"""
+            { "recipeId": "t", "contextInputs": [ "roi" ], "pipeline": { "nodes": [
+                { "id": "a", "type": "Relay", {{aFlag}} "inputs": { "src": "roi" },  "outputs": { "result": "1차" } },
+                { "id": "b", "type": "Relay", {{bFlag}} "inputs": { "src": "1차" }, "outputs": { "result": "2차" } }
+            ] } }
+            """);
+
+    private const string Off = "\"enabled\": false,";
+
+    private static PipelineContext Run(Recipe recipe)
+    {
+        PipelineContext context = new();
+        context.Set("roi", "원본");
+        new PipelineEngine().Run(Registry().CreateAll(recipe), context);
+        return context;
+    }
+
+    [Fact]
+    public void 꺼진_노드는_아예_만들어지지_않는다()
+    {
+        Assert.Equal(["a", "b"], Registry().CreateAll(TwoRelays()).Select(n => n.Id).ToArray());
+        Assert.Equal(["b"], Registry().CreateAll(TwoRelays(aFlag: Off)).Select(n => n.Id).ToArray());
+        Assert.Empty(Registry().CreateAll(TwoRelays(aFlag: Off, bFlag: Off)));
+    }
+
+    /// <summary>★ 끄면 뒷 노드가 <b>레시피를 안 고치고도</b> 윗 것을 읽는다.</summary>
+    [Fact]
+    public void 꺼진_노드의_입력이_뒷_노드로_물려진다()
+    {
+        Assert.Equal("원본>a>b", Run(TwoRelays()).Get<string>("2차"));
+
+        // a를 끄면 b의 "1차"가 "roi"로 바뀌어 읽힌다 — b는 그대로인데 받는 것이 달라진다.
+        Assert.Equal("원본>b", Run(TwoRelays(aFlag: Off)).Get<string>("2차"));
+    }
+
+    /// <summary>꺼진 노드가 연달아 있으면 별칭을 <b>끝까지</b> 따라가야 한다.</summary>
+    [Fact]
+    public void 연달아_꺼도_끝까지_따라간다()
+    {
+        Recipe recipe = RecipeLoader.Parse($$"""
+            { "recipeId": "t", "contextInputs": [ "roi" ], "pipeline": { "nodes": [
+                { "id": "a", "type": "Relay", {{Off}} "inputs": { "src": "roi" },  "outputs": { "result": "1차" } },
+                { "id": "b", "type": "Relay", {{Off}} "inputs": { "src": "1차" }, "outputs": { "result": "2차" } },
+                { "id": "c", "type": "Relay", "inputs": { "src": "2차" }, "outputs": { "result": "3차" } }
+            ] } }
+            """);
+
+        // 2차 → 1차 → roi. 두 칸을 건너뛴다.
+        Assert.Equal("원본>c", Run(recipe).Get<string>("3차"));
+    }
+
+    /// <summary>끈 노드의 출력 이름표는 <b>칠판에 아예 안 올라간다</b> — 별칭이지 복사가 아니다.</summary>
+    [Fact]
+    public void 꺼진_노드의_출력은_칠판에_없다()
+    {
+        PipelineContext context = Run(TwoRelays(aFlag: Off));
+
+        Assert.False(context.TryGet("1차", out string? _));
+        Assert.True(context.TryGet("2차", out string? _));
     }
 }
