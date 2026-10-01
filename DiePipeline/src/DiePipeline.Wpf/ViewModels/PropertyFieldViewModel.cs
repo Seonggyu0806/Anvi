@@ -40,6 +40,35 @@ public sealed class PropertyFieldViewModel : ObservableObject
 
     public IReadOnlyList<string>? Choices => _field.Choices;
 
+    // ── 슬라이더용. 붙일지·몇 칸씩인지는 아래층(PropertyField)이 정한다 ──
+
+    public bool HasRange => _field.HasRange;
+
+    public double Min => _field.Min ?? 0;
+
+    public double Max => _field.Max ?? 0;
+
+    public double Step => _field.Step;
+
+    /// <summary>
+    /// 슬라이더가 주고받는 숫자. ★ 값은 <b>글자 쪽(StringValue) 하나에만</b> 산다 —
+    /// 이건 그걸 숫자로 비춰 보는 창이다. 둘이 따로 값을 들면 언젠가 어긋난다.
+    /// </summary>
+    public double NumberValue
+    {
+        get => double.TryParse(_stringValue, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed)
+            ? parsed
+            : Min;
+        set
+        {
+            // ★ 정수 칸은 반올림, 실수 칸은 소수 셋째 자리까지.
+            //   슬라이더는 0.23478912 같은 값을 주는데, 그대로 두면 레시피 파일이 그 숫자로 더러워진다.
+            double rounded = Control == FieldControl.Integer ? Math.Round(value) : Math.Round(value, 3);
+
+            StringValue = rounded.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
     public bool BoolValue
     {
         get => _boolValue;
@@ -61,6 +90,9 @@ public sealed class PropertyFieldViewModel : ObservableObject
         {
             if (SetField(ref _stringValue, value))
             {
+                // ★ 칸에 직접 쳤을 때 슬라이더 손잡이도 따라오게 알린다.
+                OnPropertyChanged(nameof(NumberValue));
+
                 WriteString(value);
                 _onChanged();
             }

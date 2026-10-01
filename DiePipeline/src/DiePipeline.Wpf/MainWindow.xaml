@@ -30,6 +30,26 @@
                 <TextBlock Text="{Binding Name}" ToolTip="{Binding Description}" />
                 <!-- UpdateSourceTrigger=PropertyChanged — 한 글자 칠 때마다 반영. 그래야 검증이 바로 돈다 -->
                 <TextBox Text="{Binding StringValue, UpdateSourceTrigger=PropertyChanged}" />
+
+                <!--
+                    ★ 슬라이더. 위아래 끝이 다 있는 값에만 뜬다(HasRange).
+                      끝이 하나뿐인 값(minArea)엔 안 뜬다 — 화면이 끝을 지어내지 않는다.
+                      IsSnapToTickEnabled + Step — 홀수만 받는 칸은 2칸씩이라 짝수에 못 멈춘다.
+                -->
+                <Slider Minimum="{Binding Min}" Maximum="{Binding Max}"
+                        TickFrequency="{Binding Step}" IsSnapToTickEnabled="True"
+                        Value="{Binding NumberValue}" Margin="0,2,0,0">
+                    <Slider.Style>
+                        <Style TargetType="Slider">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasRange}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Slider.Style>
+                </Slider>
             </StackPanel>
         </DataTemplate>
 

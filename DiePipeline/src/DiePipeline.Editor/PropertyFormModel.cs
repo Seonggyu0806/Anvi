@@ -33,7 +33,27 @@ public sealed record PropertyField(
     IReadOnlyList<string>? Choices,
     string? Description,
     bool Required,
-    ParamConstraint Constraint);
+    ParamConstraint Constraint)
+{
+    /// <summary>
+    /// 슬라이더를 붙일 수 있는가 — <b>위아래 끝이 둘 다 정해져 있을 때만.</b>
+    ///
+    /// ★ 끝이 없는 값(<c>minArea</c>는 Min 0 만 있다)에 화면이 멋대로 끝을 정하면 안 된다.
+    ///   "면적은 1000까지" 를 화면이 정하는 순간, 디스크립터가 아닌 곳에 규칙이 생긴다.
+    ///   필요하면 디스크립터에 Max 를 적는 게 맞다 — 그러면 검증도 같이 따라온다.
+    /// </summary>
+    public bool HasRange => Control is FieldControl.Integer or FieldControl.Number
+                            && Min is { } low && Max is { } high && high > low;
+
+    /// <summary>
+    /// 슬라이더 한 칸. ★ 홀수만 받는 값은 <b>2칸씩</b> — 짝수에 아예 못 멈추게 한다.
+    /// 검증기가 어차피 잡지만, 고르고 나서 혼나는 것과 애초에 못 고르는 것은 쓰는 사람에게 다르다.
+    /// </summary>
+    public double Step => !HasRange ? 0
+        : Constraint == ParamConstraint.OddOnly ? 2
+        : Control == FieldControl.Integer ? 1
+        : (Max!.Value - Min!.Value) / 100;
+}
 
 /// <summary>
 /// ParamDescriptor[] → PropertyField[].

@@ -1,4 +1,5 @@
 ﻿using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
@@ -352,7 +353,12 @@ public sealed class MainViewModel : ObservableObject
 
         try
         {
+            // ★ 걸린 시간을 잰다. 슬라이더를 끌면 초당 수십 번 도는데,
+            //   여기가 느리면 '부분 재실행'을 다시 넣어야 한다(week-5 §4①).
+            //   필요한지는 추측하지 말고 이 숫자로 정한다.
+            Stopwatch clock = Stopwatch.StartNew();
             PreviewResult result = PreviewService.Run(_registry, recipe);
+            clock.Stop();
 
             foreach (PreviewItem item in result.Items)
             {
@@ -368,7 +374,8 @@ public sealed class MainViewModel : ObservableObject
             InspectedWidth = result.Width;
             InspectedHeight = result.Height;
 
-            PreviewSummary = $"결함 {result.Defects.Count}개 · 중간 이미지 {result.Items.Count}장";
+            PreviewSummary = $"결함 {result.Defects.Count}개 · 중간 이미지 {result.Items.Count}장 · " +
+                             $"{clock.Elapsed.TotalMilliseconds:F1} ms";
             StatusText = "미리보기 갱신됨";
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException

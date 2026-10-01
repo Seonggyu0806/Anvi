@@ -175,6 +175,43 @@ public sealed class EditorTests
             PropertyFormModel.For(registry.Describe("Label")).Single(f => f.Name == "computeShape").Control);
     }
 
+    // ───────────────────────── 슬라이더 ─────────────────────────
+
+    private static PropertyField Field(string type, string name)
+        => PropertyFormModel.For(Registry().Describe(type)).Single(f => f.Name == name);
+
+    [Fact]
+    public void 위아래_끝이_있는_실수는_100칸_슬라이더가_된다()
+    {
+        PropertyField value = Field("Binarize", "value");      // 0 ~ 1
+
+        Assert.True(value.HasRange);
+        Assert.Equal(0.01, value.Step, tolerance: 1e-9);
+    }
+
+    /// <summary>★ 홀수만 받는 값은 2칸씩 — 짝수에 아예 못 멈춘다.</summary>
+    [Fact]
+    public void 홀수만_받는_값은_두_칸씩_움직인다()
+    {
+        PropertyField block = Field("Binarize", "blockSize");  // 3 ~ 99, 홀수
+
+        Assert.True(block.HasRange);
+        Assert.Equal(2.0, block.Step, tolerance: 1e-9);
+    }
+
+    /// <summary>
+    /// ★ 끝이 없는 값에 화면이 멋대로 끝을 정하지 않는다.
+    ///   minArea 는 Min 0 만 있다 — 슬라이더가 필요하면 디스크립터에 Max 를 적어야 한다.
+    /// </summary>
+    [Fact]
+    public void 끝이_하나뿐인_값은_슬라이더를_안_만든다()
+    {
+        PropertyField minArea = Field("Label", "minArea");
+
+        Assert.False(minArea.HasRange);
+        Assert.Equal(0.0, minArea.Step, tolerance: 1e-9);
+    }
+
     /// <summary>레지스트리에만 등록하는 가짜 알고리즘 — 화면을 안 고쳐도 뜨는지 보려고.</summary>
     private sealed class NewStageFactory : INodeFactory
     {
