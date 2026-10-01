@@ -5,6 +5,7 @@
     <Project Path="src/DiePipeline.Cv/DiePipeline.Cv.csproj" />
     <Project Path="src/DiePipeline.Editor/DiePipeline.Editor.csproj" />
     <Project Path="src/DiePipeline.Wafer/DiePipeline.Wafer.csproj" />
+    <Project Path="src/DiePipeline.Wpf/DiePipeline.Wpf.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DiePipeline.Tests/DiePipeline.Tests.csproj" />

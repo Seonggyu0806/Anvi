@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DiePipeline.Core.Configuration;
 
@@ -52,7 +53,42 @@ public static class RecipeLoader
         ReadCommentHandling = JsonCommentHandling.Skip,
 
         AllowTrailingCommas = true,
+
+        // ★ 들여쓰기해서 쓴다. 이 파일은 사람이 열어 보고 손으로 고치는 파일이다 —
+        //   한 줄로 저장하면 git diff 도 "한 줄이 바뀌었다"가 되어 아무것도 못 읽는다.
+        WriteIndented = true,
+
+        Converters = { new UndefinedAsEmptyObjectConverter() },
     };
+
+    /// <summary>
+    /// <c>params</c>를 생략한 노드를 <b>다시 저장할 수 있게</b> 해 주는 변환기.
+    ///
+    /// ★ 안 적은 params는 <c>JsonValueKind.Undefined</c>인데, 기본 변환기는 그걸 쓰려 하면
+    ///   <c>InvalidOperationException</c>을 던진다. 읽을 땐 멀쩡하고 <b>저장할 때만 터진다</b> —
+    ///   화면에서 레시피를 불러와 블록 하나 옮기고 저장하는 순간 처음 드러나는 종류의 버그다.
+    ///   그래서 Undefined는 빈 객체 <c>{}</c>로 쓴다. 읽기는 표준과 똑같다.
+    /// </summary>
+    private sealed class UndefinedAsEmptyObjectConverter : JsonConverter<JsonElement>
+    {
+        public override JsonElement Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => JsonElement.ParseValue(ref reader);
+
+        public override void Write(Utf8JsonWriter writer, JsonElement value, JsonSerializerOptions options)
+        {
+            ArgumentNullException.ThrowIfNull(writer);
+
+            if (value.ValueKind == JsonValueKind.Undefined)
+            {
+                writer.WriteStartObject();
+                writer.WriteEndObject();
+            }
+            else
+            {
+                value.WriteTo(writer);
+            }
+        }
+    }
 
     public static Recipe Load(string path)
     {
@@ -80,4 +116,15 @@ public static class RecipeLoader
             throw new RecipeLoadException($"레시피를 읽지 못했습니다: {origin}\n  {ex.Message}", ex);
         }
     }
+
+    /// <summary>
+    /// 레시피를 JSON 글자로. 에디터의 내보내기가 쓴다.
+    ///
+    /// ★ 읽기와 <b>같은 설정</b>을 쓴다 — 그래야 저장한 것을 다시 읽을 수 있다.
+    ///   다만 주석은 사라진다. JSON에는 주석을 쓸 자리가 없어서,
+    ///   읽을 때 건너뛴 주석은 <b>돌아오지 않는다.</b>
+    ///   사람이 "왜 이 값인가"를 적어 둔 레시피를 화면에서 저장하면 그 설명이 날아간다.
+    /// </summary>
+    public static string Serialize(Recipe recipe)
+        => JsonSerializer.Serialize(recipe, Options);
 }

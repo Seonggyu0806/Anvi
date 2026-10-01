@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\DiePipeline.Core\DiePipeline.Core.csproj" />
+    <ProjectReference Include="..\DiePipeline.Cv\DiePipeline.Cv.csproj" />
+    <ProjectReference Include="..\DiePipeline.Editor\DiePipeline.Editor.csproj" />
+  </ItemGroup>
+
+  <!--
+    ★ 여기만 net10.0-windows 다. Directory.Build.props 의 net10.0 을 덮어쓴다.
+      WPF는 윈도우 전용이라 대상 플랫폼을 따로 적어야 한다.
+      이 프로젝트 하나만 플랫폼에 묶이고, 아래층 다섯 개는 그대로 net10.0 이다.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+</Project>

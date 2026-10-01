@@ -9,8 +9,23 @@
 /// </summary>
 public sealed class PipelineEngine
 {
-    public PipelineResult Run(IReadOnlyList<IPipelineNode> nodes, PipelineContext context)
+    /// <param name="inspect">
+    /// 반납 직전에 칠판을 <b>한 번 들여다볼</b> 기회. 화면의 '중간 결과 보기'가 쓴다.
+    ///
+    /// ★ 왜 여기여야 하나: 중간 이미지는 아래 <c>ReleaseAll</c>에서 전부 죽는다.
+    ///   <c>Run</c>이 돌아온 뒤에 꺼내려 하면 이미 없다.
+    ///   그래서 <b>보려는 쪽이 안으로 들어오게</b> 한다 — 밖으로 내보내 주는 게 아니라.
+    ///
+    /// ★ 이 틈이 없으면 보려는 쪽이 이 루프를 복사해 간다. 그러면 취소 검사 같은 것이
+    ///   한쪽에만 생겨 <b>둘이 조용히 달라진다.</b> 베껴 가지 말라고 열어 둔 구멍이다.
+    ///
+    /// 예외·취소로 빠져나갈 때는 부르지 않는다 — 반쯤 찬 칠판을 결과처럼 보여 주면 안 된다.
+    /// </param>
+    public PipelineResult Run(
+        IReadOnlyList<IPipelineNode> nodes, PipelineContext context, Action<IPipelineContext>? inspect = null)
     {
+        ArgumentNullException.ThrowIfNull(context);
+
         try
         {
             foreach (IPipelineNode node in nodes)
@@ -20,6 +35,8 @@ public sealed class PipelineEngine
 
                 node.Execute(context);
             }
+
+            inspect?.Invoke(context);
 
             // ★ C# 문법 요점: return의 '값'이 먼저 평가되고, 그다음 finally가 실행된다.
             //   그래서 여기서 결과를 뽑은 뒤에 아래 ReleaseAll이 돈다 — 순서가 정확히 맞는다.
