@@ -180,7 +180,7 @@ public sealed class MainViewModel : ObservableObject
     private static EditorGraph StandardGraph()
     {
         EditorGraph graph = SampleGraph.Standard();
-        GraphOps.AutoLayout(graph, GraphEditorViewModel.CanvasLeft);
+        LayoutEngine.Layered(graph, GraphEditorViewModel.CanvasLeft);
         return graph;
     }
 }

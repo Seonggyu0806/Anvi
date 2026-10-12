@@ -16,15 +16,32 @@
     <TabControl>
     <TabItem Header="die 에디터">
     <DockPanel>
+        <!--
+            ★ 단축키 — die 탭 안에서만 듣는다(창 전체에 걸면 웨이퍼 탭에서 눌러도 die 그래프가 바뀐다).
+              입력칸에서 글자를 지우는 Delete 는 입력칸이 먼저 받으므로 블록이 지워지지 않는다.
+        -->
+        <DockPanel.InputBindings>
+            <KeyBinding Modifiers="Control" Key="Z" Command="{Binding Editor.UndoCommand}" />
+            <KeyBinding Modifiers="Control" Key="Y" Command="{Binding Editor.RedoCommand}" />
+            <KeyBinding Modifiers="Control" Key="D" Command="{Binding Editor.DuplicateSelectedCommand}" />
+            <KeyBinding Key="Delete" Command="{Binding Editor.DeleteSelectedCommand}" />
+        </DockPanel.InputBindings>
+
         <ToolBarTray DockPanel.Dock="Top">
             <ToolBar>
                 <Button Content="표준 불러오기" Command="{Binding Editor.NewStandardCommand}" />
                 <Button Content="열기…" Command="{Binding Editor.ImportCommand}" />
                 <Button Content="내보내기…" Command="{Binding Editor.ExportCommand}" />
                 <Separator />
+                <Button Content="↶ 되돌리기" Command="{Binding Editor.UndoCommand}" ToolTip="Ctrl+Z" />
+                <Button Content="↷ 다시" Command="{Binding Editor.RedoCommand}" ToolTip="Ctrl+Y" />
+                <Separator />
+                <Button Content="선택 블록 복제" Command="{Binding Editor.DuplicateSelectedCommand}" ToolTip="Ctrl+D" />
+                <Button Content="선택 삭제" Command="{Binding Editor.DeleteSelectedCommand}"
+                        ToolTip="Delete — 고른 선이 있으면 선을, 없으면 고른 블록을 지운다" />
+                <Button Content="전체 보기" Command="{Binding Editor.FitCommand}" ToolTip="그래프 전체가 보이게 맞춘다" />
+                <Separator />
                 <Button Content="미리보기 실행" Command="{Binding RunPreviewCommand}" FontWeight="Bold" />
-                <Button Content="선택 블록 복제" Command="{Binding Editor.DuplicateSelectedCommand}" />
-                <Button Content="선택 블록 삭제" Command="{Binding Editor.DeleteSelectedCommand}" />
             </ToolBar>
         </ToolBarTray>
 
@@ -40,7 +57,7 @@
         </StatusBar>
 
         <!--
-            ★ 편집기(팔레트 · 캔버스 · 속성 · 연결 · 검증)는 웨이퍼 편집 탭과 같은 부품이다.
+            ★ 편집기(팔레트 · 캔버스 · 속성 · 검증)는 웨이퍼 편집 탭과 같은 부품이다.
               die 탭에만 있는 것 — 미리보기 — 은 오른쪽 아래 칸(SideContent)에 끼운다.
               ★ 끼운 칸의 DataContext 는 편집기가 아니라 창(MainViewModel)이다 — 미리보기는 die 탭의 일이다.
         -->

@@ -8,6 +8,14 @@
   </ItemGroup>
 
   <!--
+    ★ Nodify — 블록 캔버스(포트 끌어 잇기 · 확대/축소/이동). 교수님 화면과 같은 판(7.3.0).
+      화면 프로젝트만 쓴다 — 아래층 다섯 개는 모른다.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Nodify" Version="7.3.0" />
+  </ItemGroup>
+
+  <!--
     ★ 여기만 net10.0-windows 다. Directory.Build.props 의 net10.0 을 덮어쓴다.
       WPF는 윈도우 전용이라 대상 플랫폼을 따로 적어야 한다.
       이 프로젝트 하나만 플랫폼에 묶이고, 아래층 다섯 개는 그대로 net10.0 이다.

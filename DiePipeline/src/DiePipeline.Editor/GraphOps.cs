@@ -104,22 +104,4 @@ public static class GraphOps
 
         return copy;
     }
-
-    /// <summary>
-    /// 좌표가 없는 그래프를 격자로 늘어놓는다(불러온 레시피에 좌표 파일이 없을 때).
-    ///
-    /// ★ <paramref name="left"/>부터 시작하는 이유: 캔버스 왼쪽 열은 컨텍스트 입력 블록 자리다.
-    ///   0부터 깔면 둘이 겹쳐서 양쪽 다 안 읽힌다.
-    /// </summary>
-    public static void AutoLayout(EditorGraph graph, double left, int columns = 4)
-    {
-        ArgumentNullException.ThrowIfNull(graph);
-        ArgumentOutOfRangeException.ThrowIfLessThan(columns, 1);
-
-        for (int i = 0; i < graph.Nodes.Count; i++)
-        {
-            graph.Nodes[i].X = left + (i % columns * 180);
-            graph.Nodes[i].Y = 40 + (i / columns * 170);
-        }
-    }
 }

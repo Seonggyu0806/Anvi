@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using System.Windows;
 using DiePipeline.Core.Registry;
 using DiePipeline.Editor;
 using DiePipeline.Wpf.Mvvm;
@@ -19,6 +21,8 @@ namespace DiePipeline.Wpf.ViewModels;
 ///
 /// ★ 포트도 속성폼도 <b>디스크립터에서 나온다.</b> 노드 타입별 분기가 한 줄도 없다 —
 ///   여기에 <c>if (Type == "Binarize")</c>가 생기는 순간 이 층의 값어치가 사라진다.
+///
+/// ★ 포트는 <b>점</b>(<see cref="ConnectorViewModel"/>)이다 — 왼쪽 입력 · 오른쪽 출력. 점에서 점으로 끌어 잇는다(Nodify).
 /// </summary>
 public sealed class NodeViewModel : ObservableObject
 {
@@ -26,6 +30,7 @@ public sealed class NodeViewModel : ObservableObject
 
     private double _x;
     private double _y;
+    private bool _hasError;
 
     /// <summary>진짜 파이프라인 블록.</summary>
     public NodeViewModel(EditorNode model, INodeDescriptor descriptor, Action onChanged)
@@ -39,6 +44,16 @@ public sealed class NodeViewModel : ObservableObject
         _x = model.X;
         _y = model.Y;
 
+        foreach (PortDescriptor port in descriptor.Inputs)
+        {
+            Input.Add(new ConnectorViewModel(this, port.Name, isInput: true));
+        }
+
+        foreach (PortDescriptor port in descriptor.Outputs)
+        {
+            Output.Add(new ConnectorViewModel(this, port.Name, isInput: false));
+        }
+
         Fields = [.. descriptor.Params.Select(p => new PropertyFieldViewModel(model, PropertyFormModel.FromParam(p), onChanged))];
     }
 
@@ -49,6 +64,9 @@ public sealed class NodeViewModel : ObservableObject
         ContextKey = contextKey;
         _x = x;
         _y = y;
+
+        // ★ 컨텍스트의 출력 이름은 키 그 자체다 — 그래서 선이 그 이름으로 이어진다.
+        Output.Add(new ConnectorViewModel(this, contextKey, isInput: false));
         Fields = [];
     }
 
@@ -70,14 +88,36 @@ public sealed class NodeViewModel : ObservableObject
 
     public string Category => Descriptor?.Category ?? "입력";
 
-    public IReadOnlyList<string> InputPorts
-        => IsContext ? [] : [.. Descriptor!.Inputs.Select(p => p.Name)];
+    /// <summary>블록 머리 — 컨텍스트는 키, 진짜 노드는 "종류 (id)".</summary>
+    public string DisplayName => IsContext ? ContextKey! : $"{Model!.Type} ({Model.Id})";
 
-    /// <summary>★ 컨텍스트의 출력 이름은 키 그 자체다 — 그래서 선이 그 이름으로 이어진다.</summary>
-    public IReadOnlyList<string> OutputPorts
-        => IsContext ? [ContextKey!] : [.. Descriptor!.Outputs.Select(p => p.Name)];
+    /// <summary>왼쪽 포트 점들(입력). 컨텍스트는 없다.</summary>
+    public ObservableCollection<ConnectorViewModel> Input { get; } = [];
+
+    /// <summary>오른쪽 포트 점들(출력).</summary>
+    public ObservableCollection<ConnectorViewModel> Output { get; } = [];
 
     public IReadOnlyList<PropertyFieldViewModel> Fields { get; }
+
+    /// <summary>검증 오류가 이 블록을 가리키면 true — 캔버스에서 빨간 테두리로 보인다.</summary>
+    public bool HasError
+    {
+        get => _hasError;
+        set => SetField(ref _hasError, value);
+    }
+
+    /// <summary>
+    /// 캔버스 위치 — Nodify 가 블록을 끌면 여기에 쓴다. <see cref="X"/> · <see cref="Y"/> 와 같은 값이다.
+    /// </summary>
+    public Point Location
+    {
+        get => new(_x, _y);
+        set
+        {
+            X = value.X;
+            Y = value.Y;
+        }
+    }
 
     // ★ 좌표는 이제 이 객체가 들고, 진짜 노드일 때만 모델에도 적는다.
     //   컨텍스트 블록은 모델이 없어서 어딘가에는 들고 있어야 한다.
@@ -86,9 +126,14 @@ public sealed class NodeViewModel : ObservableObject
         get => _x;
         set
         {
-            if (SetField(ref _x, value) && Model is not null)
+            if (SetField(ref _x, value))
             {
-                Model.X = value;
+                if (Model is not null)
+                {
+                    Model.X = value;
+                }
+
+                OnPropertyChanged(nameof(Location));
             }
         }
     }
@@ -98,9 +143,14 @@ public sealed class NodeViewModel : ObservableObject
         get => _y;
         set
         {
-            if (SetField(ref _y, value) && Model is not null)
+            if (SetField(ref _y, value))
             {
-                Model.Y = value;
+                if (Model is not null)
+                {
+                    Model.Y = value;
+                }
+
+                OnPropertyChanged(nameof(Location));
             }
         }
     }

@@ -1,5 +1,8 @@
 ﻿using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
+using System.Text.RegularExpressions;
+using System.Windows.Data;
 using System.Windows.Input;
 using DiePipeline.Core.Configuration;
 using DiePipeline.Core.Registry;
@@ -40,43 +43,57 @@ public sealed record GraphEditorSettings
 /// ★ die 탭과 웨이퍼 탭이 <b>같은 이 클래스</b>를 쓴다. 다른 것은 <see cref="GraphEditorSettings"/> 뿐이다.
 ///   베껴서 두 벌을 두면 한쪽만 고쳐지는 날이 온다(교수님도 die 에디터와 같은 캔버스 · 팔레트 · 속성폼 · 검증을 재사용).
 /// ★ 화면(<c>GraphEditorView</c>)은 이 클래스의 속성에 <b>붙기만</b> 한다. 판단은 전부 여기서 한다.
+/// ★ 캔버스는 Nodify(교수님과 같다) — 포트 점에서 점으로 끌어 잇고, 확대 · 축소 · 이동한다.
 /// </summary>
-public sealed class GraphEditorViewModel : ObservableObject
+public sealed partial class GraphEditorViewModel : ObservableObject
 {
-    // ★ x를 220부터 시작한다 — 왼쪽 열은 컨텍스트 입력 블록 자리다.
+    // ★ x를 240부터 시작한다 — 왼쪽 열은 컨텍스트 입력 블록 자리다.
     //   40부터 깔면 컨텍스트 블록과 겹쳐서 둘 다 안 읽힌다.
-    public const double CanvasLeft = 220;
+    public const double CanvasLeft = 240;
 
     private readonly GraphEditorSettings _settings;
+    private readonly GraphHistory _history = new();
+    private readonly RelayCommand _undo;
+    private readonly RelayCommand _redo;
 
     private EditorGraph _graph = new();
 
     private NodeViewModel? _selectedNode;
     private bool _isValid;
     private string _statusText = "준비됨";
-    private string? _selectedSource;
-    private string? _selectedTarget;
+    private string _paletteSearch = string.Empty;
 
     public GraphEditorViewModel(GraphEditorSettings settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
         _settings = settings;
 
-        // ★ 팔레트를 손으로 안 적는다. 명부에서 그대로 펼친다.
-        Palette =
+        // ★ 팔레트를 손으로 안 적는다. 명부에서 그대로 펼친다. 카테고리로 묶고, 검색칸으로 거른다.
+        PaletteItems =
         [
             .. PaletteModel.Filtered(settings.Registry, settings.PaletteFilter)
                 .SelectMany(c => c.Nodes.Select(d => new PaletteItemViewModel(c.Category, d.TypeName, AddNode)))
         ];
 
+        CollectionViewSource source = new() { Source = PaletteItems };
+        source.GroupDescriptions.Add(new PropertyGroupDescription(nameof(PaletteItemViewModel.Category)));
+        Palette = source.View;
+        Palette.Filter = item => item is PaletteItemViewModel p && Matches(p, _paletteSearch);
+
+        PendingConnection = new PendingConnectionViewModel(Connect);
+
+        _undo = new RelayCommand(Undo, () => _history.CanUndo);
+        _redo = new RelayCommand(Redo, () => _history.CanRedo);
+
         ExportCommand = new RelayCommand(Export);
         ImportCommand = new RelayCommand(Import);
-        ConnectCommand = new RelayCommand(Connect);
+        DisconnectCommand = new RelayCommand<ConnectionViewModel>(Disconnect);
         DuplicateSelectedCommand = new RelayCommand(DuplicateSelected);
         DeleteSelectedCommand = new RelayCommand(DeleteSelected);
-        NewStandardCommand = new RelayCommand(() => LoadGraph(settings.StarterGraph()));
+        NewStandardCommand = new RelayCommand(() => LoadGraph(settings.StarterGraph(), fresh: true));
+        FitCommand = new RelayCommand(() => FitRequested?.Invoke());
 
-        LoadGraph(settings.StarterGraph());
+        LoadGraph(settings.StarterGraph(), fresh: true);
     }
 
     /// <summary>
@@ -85,9 +102,38 @@ public sealed class GraphEditorViewModel : ObservableObject
     /// </summary>
     public event Action? GraphChanged;
 
+    /// <summary>
+    /// 캔버스에 그래프 전체가 보이게 맞춰 달라 — 확대 · 이동은 화면(Nodify)의 일이라 화면이 받아서 한다.
+    /// ★ 그래프를 새로 열었을 때와 '전체 보기' 버튼에서.
+    /// </summary>
+    public event Action? FitRequested;
+
     public NodeRegistry Registry => _settings.Registry;
 
-    public IReadOnlyList<PaletteItemViewModel> Palette { get; }
+    /// <summary>팔레트 전체 — 거르기 전.</summary>
+    public IReadOnlyList<PaletteItemViewModel> PaletteItems { get; }
+
+    /// <summary>화면이 보는 팔레트 — 카테고리로 묶고 검색칸으로 거른 것.</summary>
+    public ICollectionView Palette { get; }
+
+    /// <summary>팔레트 검색 — 블록 이름이나 카테고리에 이 글자가 들어 있으면 보인다. 비우면 전부.</summary>
+    public string PaletteSearch
+    {
+        get => _paletteSearch;
+        set
+        {
+            if (SetField(ref _paletteSearch, value ?? string.Empty))
+            {
+                Palette.Refresh();
+            }
+        }
+    }
+
+    /// <summary>끌고 있는 선 — 포트 점에서 점으로.</summary>
+    public PendingConnectionViewModel PendingConnection { get; }
+
+    /// <summary>캔버스에서 고른 선들 — Delete 로 지운다. Nodify 가 채운다.</summary>
+    public ObservableCollection<object> SelectedConnections { get; } = [];
 
     // ★ ObservableCollection — 항목을 더하고 빼면 화면이 알아서 따라온다.
     //   그냥 List 를 쓰면 추가해도 화면이 그대로다.
@@ -97,15 +143,18 @@ public sealed class GraphEditorViewModel : ObservableObject
 
     public ObservableCollection<string> ValidationMessages { get; } = [];
 
-    public ObservableCollection<string> SourceOptions { get; } = [];
-
-    public ObservableCollection<string> TargetOptions { get; } = [];
-
     public ICommand ExportCommand { get; }
 
     public ICommand ImportCommand { get; }
 
-    public ICommand ConnectCommand { get; }
+    /// <summary>선 하나 끊기 — 선을 더블클릭(또는 Alt+클릭)할 때 Nodify 가 그 선을 넘긴다.</summary>
+    public ICommand DisconnectCommand { get; }
+
+    public ICommand UndoCommand => _undo;
+
+    public ICommand RedoCommand => _redo;
+
+    public ICommand FitCommand { get; }
 
     public ICommand DuplicateSelectedCommand { get; }
 
@@ -132,18 +181,6 @@ public sealed class GraphEditorViewModel : ObservableObject
         set => SetField(ref _statusText, value);
     }
 
-    public string? SelectedSource
-    {
-        get => _selectedSource;
-        set => SetField(ref _selectedSource, value);
-    }
-
-    public string? SelectedTarget
-    {
-        get => _selectedTarget;
-        set => SetField(ref _selectedTarget, value);
-    }
-
     /// <summary>
     /// 지금 그래프를 레시피로 — <b>검증 강제</b>(<see cref="RecipeMapper.Export"/>). 막히면 <see cref="RecipeExportException"/>.
     /// ★ 내보내기 · 미리보기 · 웨이퍼 검사가 모두 이 길을 탄다 — 따로 만들면 "화면에선 되는데 파일로 내면 안 되는" 상태가 생긴다.
@@ -158,6 +195,16 @@ public sealed class GraphEditorViewModel : ObservableObject
         IsValid = errors.Count == 0;
 
         ValidationMessages.Clear();
+
+        // ★ 오류가 가리키는 블록을 캔버스에서 빨갛게 — 검증 문장은 "node 'id'(종류): …" 로 시작한다.
+        HashSet<string> broken = new(
+            errors.Select(e => NodeIdPattern().Match(e)).Where(m => m.Success).Select(m => m.Groups[1].Value),
+            StringComparer.Ordinal);
+
+        foreach (NodeViewModel node in Nodes)
+        {
+            node.HasError = !node.IsContext && broken.Contains(node.Id);
+        }
 
         if (IsValid)
         {
@@ -185,13 +232,16 @@ public sealed class GraphEditorViewModel : ObservableObject
 
     private void AddNode(string type)
     {
+        _history.Push(_graph);
+
         EditorNode model = new()
         {
             Id = GraphOps.UniqueId(_graph, type),
             Type = type,
             // ★ 컨텍스트 블록은 빼고 센다 — 안 빼면 새 블록이 자꾸 오른쪽으로 밀린다.
-            X = CanvasLeft + (_graph.Nodes.Count % 4 * 180),
-            Y = 40 + (_graph.Nodes.Count / 4 * 170),
+            //   간격은 자동 배치와 같다 — Nodify 블록이 겹치지 않을 만큼.
+            X = CanvasLeft + (_graph.Nodes.Count % 4 * LayoutEngine.ColumnGap),
+            Y = 60 + (_graph.Nodes.Count / 4 * LayoutEngine.RowGap),
         };
 
         _graph.Nodes.Add(model);
@@ -200,25 +250,60 @@ public sealed class GraphEditorViewModel : ObservableObject
         Nodes.Add(node);
         SelectedNode = node;
 
-        RefreshPortOptions();
         OnGraphChanged();
     }
 
-    private void Connect()
+    /// <summary>
+    /// 점에서 점으로 끌어 놓았을 때. 어느 쪽에서 끌기 시작했든 <b>출력 → 입력</b>으로 바로잡는다.
+    /// ★ 출력끼리 · 입력끼리 · 같은 블록 안은 무시한다. 규칙("입력 포트엔 선이 하나")은 GraphOps 안에 있다 — 테스트가 지킨다.
+    /// </summary>
+    private void Connect(ConnectorViewModel start, ConnectorViewModel end)
     {
-        if (SelectedSource is null || SelectedTarget is null)
+        (ConnectorViewModel? source, ConnectorViewModel? target) = (start.IsInput, end.IsInput) switch
+        {
+            (false, true) => (start, end),
+            (true, false) => (end, start),
+            _ => (null, null),
+        };
+
+        if (source is null || target is null || ReferenceEquals(source.Node, target.Node) || target.Node.IsContext)
         {
             return;
         }
 
-        (string? sourceNode, string sourcePort) = ParseSource(SelectedSource);
-        (string targetNode, string targetPort) = ParseEndpoint(SelectedTarget);
+        _history.Push(_graph);
 
-        // 규칙("입력 포트엔 선이 하나")은 GraphOps 안에 있다 — 테스트가 지킨다.
-        GraphOps.Connect(_graph, sourceNode, sourcePort, targetNode, targetPort);
+        // ★ 컨텍스트에서 오는 선은 노드 id 가 없고, 포트 이름이 곧 이름표다(예: "roi").
+        GraphOps.Connect(
+            _graph,
+            source.Node.IsContext ? null : source.Node.Id,
+            source.Title,
+            target.Node.Id,
+            target.Title);
 
         RebuildConnections();
         OnGraphChanged();
+    }
+
+    private void Disconnect(ConnectionViewModel connection)
+    {
+        _history.Push(_graph);
+        _graph.Connections.Remove(connection.Model);
+
+        RebuildConnections();
+        OnGraphChanged();
+    }
+
+    private void Undo()
+    {
+        LoadGraph(_history.Undo(_graph), fresh: false);
+        StatusText = "되돌렸습니다";
+    }
+
+    private void Redo()
+    {
+        LoadGraph(_history.Redo(_graph), fresh: false);
+        StatusText = "다시 했습니다";
     }
 
     /// <summary>
@@ -233,13 +318,13 @@ public sealed class GraphEditorViewModel : ObservableObject
             return;
         }
 
+        _history.Push(_graph);
         EditorNode copy = GraphOps.Duplicate(_graph, SelectedNode.Id);
 
         NodeViewModel node = new(copy, _settings.Registry.Describe(copy.Type), OnGraphChanged);
         Nodes.Add(node);
         SelectedNode = node;
 
-        RefreshPortOptions();
         OnGraphChanged();
 
         // ★ 복제본은 아무 데도 안 이어져 있다. 검증칸이 바로 "연결되지 않았습니다"를 띄우는데,
@@ -249,6 +334,25 @@ public sealed class GraphEditorViewModel : ObservableObject
 
     private void DeleteSelected()
     {
+        // ★ 선을 골라 두었으면 선을 지운다 — 블록은 그대로.
+        ConnectionViewModel[] lines = [.. SelectedConnections.OfType<ConnectionViewModel>()];
+
+        if (lines.Length > 0)
+        {
+            _history.Push(_graph);
+
+            foreach (ConnectionViewModel line in lines)
+            {
+                _graph.Connections.Remove(line.Model);
+            }
+
+            SelectedConnections.Clear();
+            RebuildConnections();
+            OnGraphChanged();
+            StatusText = $"선 {lines.Length}개를 지웠습니다";
+            return;
+        }
+
         // ★ 컨텍스트 입력은 지울 수 없다 — 레시피의 노드가 아니라 실행기가 넣어 주는 것이다.
         if (SelectedNode is null || SelectedNode.IsContext)
         {
@@ -257,13 +361,13 @@ public sealed class GraphEditorViewModel : ObservableObject
         }
 
         // 블록 + 닿은 선을 같이 지우는 건 GraphOps 몫이다.
+        _history.Push(_graph);
         GraphOps.Remove(_graph, SelectedNode.Id);
 
         Nodes.Remove(SelectedNode);
         SelectedNode = null;
 
         RebuildConnections();
-        RefreshPortOptions();
         OnGraphChanged();
     }
 
@@ -331,26 +435,34 @@ public sealed class GraphEditorViewModel : ObservableObject
         EditorGraph graph = RecipeMapper.FromRecipe(recipe);
         string layoutPath = LayoutPath(dialog.FileName);
 
-        // 좌표 파일이 같이 있으면 그대로, 없으면 격자로 늘어놓는다(안 그러면 전부 0,0 에 겹친다).
+        // 좌표 파일이 같이 있으면 그대로, 없으면 흐름 순서대로 늘어놓는다(안 그러면 전부 0,0 에 겹친다).
         if (File.Exists(layoutPath))
         {
             LayoutSidecar.Parse(File.ReadAllText(layoutPath)).ApplyTo(graph);
         }
         else
         {
-            GraphOps.AutoLayout(graph, CanvasLeft);
+            LayoutEngine.Layered(graph, CanvasLeft);
         }
 
-        LoadGraph(graph);
+        LoadGraph(graph, fresh: true);
         StatusText = $"불러왔습니다: {Path.GetFileName(dialog.FileName)}";
     }
 
     // ───────────────────────── 내부 ─────────────────────────
 
-    private void LoadGraph(EditorGraph graph)
+    /// <param name="fresh">새 그래프를 열었나(처음 · 표준 · 열기). 그러면 되돌리기 기록을 비우고 캔버스를 그래프에 맞춘다.
+    /// 되돌리기 · 다시로 바꾼 것이면 기록도 화면 위치도 그대로 둔다.</param>
+    private void LoadGraph(EditorGraph graph, bool fresh)
     {
         _graph = graph;
         SelectedNode = null;
+        SelectedConnections.Clear();
+
+        if (fresh)
+        {
+            _history.Clear();
+        }
 
         Nodes.Clear();
 
@@ -367,64 +479,42 @@ public sealed class GraphEditorViewModel : ObservableObject
         }
 
         RebuildConnections();
-        RefreshPortOptions();
         OnGraphChanged();
+
+        if (fresh)
+        {
+            FitRequested?.Invoke();
+        }
     }
 
+    /// <summary>그래프의 선을 점과 점 사이 선으로 다시 놓는다. 이어진 점은 채워 그린다.</summary>
     private void RebuildConnections()
     {
-        // ★★ 버리기 전에 구독을 끊는다. 안 끊으면 죽은 선이 노드에 붙어 계속 산다.
-        foreach (ConnectionViewModel connection in Connections)
-        {
-            connection.Dispose();
-        }
-
         Connections.Clear();
+
+        foreach (ConnectorViewModel point in Nodes.SelectMany(n => n.Input.Concat(n.Output)))
+        {
+            point.IsConnected = false;
+        }
 
         foreach (EditorConnection model in _graph.Connections)
         {
-            // ★ 컨텍스트에서 오는 선(SourceNodeId == null)은 <b>그 컨텍스트 블록</b>에 붙인다.
+            // ★ 컨텍스트에서 오는 선(SourceNodeId == null)은 <b>그 컨텍스트 블록</b>의 점에 붙인다.
             //   SourcePort 가 곧 키라서(= "roi") 그 이름의 블록을 찾으면 된다.
-            NodeViewModel? source = model.SourceNodeId is null
-                ? Nodes.FirstOrDefault(n => n.IsContext && n.ContextKey == model.SourcePort)
-                : Nodes.FirstOrDefault(n => !n.IsContext && n.Id == model.SourceNodeId);
+            ConnectorViewModel? source = (model.SourceNodeId is null
+                    ? Nodes.FirstOrDefault(n => n.IsContext && n.ContextKey == model.SourcePort)
+                    : Nodes.FirstOrDefault(n => !n.IsContext && n.Id == model.SourceNodeId))
+                ?.Output.FirstOrDefault(c => c.Title == model.SourcePort);
 
-            NodeViewModel? target = Nodes.FirstOrDefault(n => !n.IsContext && n.Id == model.TargetNodeId);
+            ConnectorViewModel? target = Nodes.FirstOrDefault(n => !n.IsContext && n.Id == model.TargetNodeId)
+                ?.Input.FirstOrDefault(c => c.Title == model.TargetPort);
 
-            if (target is not null)
+            // 점이 없는 선(입력 블록이 없는 이름표 · 디스크립터에 없는 포트)은 그리지 않는다 — 검증칸이 알린다.
+            if (source is not null && target is not null)
             {
+                source.IsConnected = true;
+                target.IsConnected = true;
                 Connections.Add(new ConnectionViewModel(model, source, target));
-            }
-        }
-    }
-
-    /// <summary>연결 콤보박스의 항목. ★ 이것도 디스크립터의 포트에서 나온다.</summary>
-    private void RefreshPortOptions()
-    {
-        SourceOptions.Clear();
-
-        foreach (string context in _settings.ContextInputs)
-        {
-            SourceOptions.Add("ctx:" + context);
-        }
-
-        // ★ 컨텍스트 블록은 건너뛴다 — 바로 위에서 "ctx:…" 로 이미 넣었다.
-        //   안 건너뛰면 "ctx:roi" 와 "roi:roi" 가 둘 다 뜬다.
-        foreach (NodeViewModel node in Nodes.Where(n => !n.IsContext))
-        {
-            foreach (string port in node.OutputPorts)
-            {
-                SourceOptions.Add($"{node.Id}:{port}");
-            }
-        }
-
-        TargetOptions.Clear();
-
-        foreach (NodeViewModel node in Nodes.Where(n => !n.IsContext))
-        {
-            foreach (string port in node.InputPorts)
-            {
-                TargetOptions.Add($"{node.Id}:{port}");
             }
         }
     }
@@ -436,24 +526,22 @@ public sealed class GraphEditorViewModel : ObservableObject
     private void OnGraphChanged()
     {
         ShowIssues(RecipeValidator.Validate(RecipeMapper.ToRecipe(_graph, _settings.Registry), _settings.Registry));
+
+        // 되돌리기 · 다시 버튼이 눌릴 수 있는지가 바뀌었을 수 있다.
+        _undo.RaiseCanExecuteChanged();
+        _redo.RaiseCanExecuteChanged();
+
         GraphChanged?.Invoke();
     }
 
-    // ★ 토큰 해석만 여기 남는다 — "ctx:roi" 라는 글자 형식은 이 화면의 콤보박스 사정이지
-    //   그래프의 규칙이 아니다. 아래층이 알 이유가 없다.
-    //
-    // "ctx:roi" → (null, "roi") · "diff:result" → ("diff", "result")
-    private static (string? Node, string Port) ParseSource(string token)
-        => token.StartsWith("ctx:", StringComparison.Ordinal)
-            ? (null, token["ctx:".Length..])
-            : ParseEndpoint(token);
+    private static bool Matches(PaletteItemViewModel item, string search)
+        => string.IsNullOrWhiteSpace(search)
+           || item.TypeName.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)
+           || item.Category.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase);
 
-    private static (string Node, string Port) ParseEndpoint(string token)
-    {
-        int separator = token.IndexOf(':', StringComparison.Ordinal);
-
-        return separator < 0 ? (token, string.Empty) : (token[..separator], token[(separator + 1)..]);
-    }
+    /// <summary>검증 문장 앞머리 "node 'id'(종류)" 에서 id.</summary>
+    [GeneratedRegex(@"^node '([^']+)'")]
+    private static partial Regex NodeIdPattern();
 
     private static string LayoutPath(string recipePath)
         => Path.ChangeExtension(recipePath, null) + ".layout.json";

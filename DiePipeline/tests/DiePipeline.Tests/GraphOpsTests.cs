@@ -137,27 +137,4 @@ public sealed class GraphOpsTests
 
         Assert.Contains("없는것", error.Message);
     }
-
-    /// <summary>왼쪽 열은 컨텍스트 입력 자리라 비워 둬야 한다.</summary>
-    [Fact]
-    public void 격자_배치는_왼쪽_열을_비워_둔다()
-    {
-        EditorGraph graph = new();
-
-        for (int i = 0; i < 6; i++)
-        {
-            graph.Nodes.Add(new EditorNode { Id = $"n{i}", Type = "Label" });
-        }
-
-        GraphOps.AutoLayout(graph, left: 220, columns: 4);
-
-        Assert.All(graph.Nodes, n => Assert.True(n.X >= 220, $"{n.Id} 가 {n.X} 로 왼쪽 열에 들어갔다"));
-
-        Assert.Equal(220, graph.Nodes[0].X);
-        Assert.Equal(40, graph.Nodes[0].Y);
-
-        // 5번째(인덱스 4)는 줄바꿈 — 다시 왼쪽 끝, 한 줄 아래
-        Assert.Equal(220, graph.Nodes[4].X);
-        Assert.Equal(210, graph.Nodes[4].Y);
-    }
 }
