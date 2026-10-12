@@ -1,7 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    ★ 5주차에 Cv 참조를 더했다(4주차엔 Core 만이었다).
+      웨이퍼 검사 흐름 전체(사진 읽기 → 정렬 → die 마다 레시피 → 모으기)를 이 층이 가져야
+      명령행과 화면이 같은 흐름을 쓴다. 교수님 8.4b 와 같은 판단 —
+      지킬 경계는 "OpenCV 를 모른다" 가 아니라 "화면을 모른다" 다.
+      WaferRunner 는 여전히 검사 함수를 받으므로 격자·이웃 테스트는 사진 없이 돈다.
+  -->
   <ItemGroup>
     <ProjectReference Include="..\DiePipeline.Core\DiePipeline.Core.csproj" />
+    <ProjectReference Include="..\DiePipeline.Cv\DiePipeline.Cv.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

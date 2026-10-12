@@ -43,6 +43,11 @@ public static class DefectCollector
                     // ★ 여기서 절대좌표로 덮어쓰면 "원래 무엇이었나" 를 영영 잃는다.
                     //   die 레시피의 테스트가 전부 이 값 기준으로 굳어 있기도 하다.
                     Defect = defect,
+
+                    // 이 좌표를 잰 자리 — 잘라 읽은 ROI 가 die 원점에서 떨어진 만큼. 변환이 이걸 더한다.
+                    ReadOffset = new PointF(
+                        inspection.Roi.X - inspection.Die.Origin.X,
+                        inspection.Roi.Y - inspection.Die.Origin.Y),
                 });
             }
         }

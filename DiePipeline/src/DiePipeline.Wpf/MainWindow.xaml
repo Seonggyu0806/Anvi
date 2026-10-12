@@ -86,6 +86,12 @@
         </DataTemplate>
     </Window.Resources>
 
+    <!--
+        ★ 탭 둘. 웨이퍼 탭은 die 탭의 레시피를 그대로 쓴다 —
+          die 탭에서 고치면 웨이퍼 검사도 같이 바뀐다.
+    -->
+    <TabControl>
+    <TabItem Header="die 에디터">
     <DockPanel>
         <ToolBarTray DockPanel.Dock="Top">
             <ToolBar>
@@ -394,4 +400,466 @@
             </Grid>
         </Grid>
     </DockPanel>
+    </TabItem>
+
+    <!-- ═════════════════════════ 웨이퍼 탭 ═════════════════════════ -->
+    <TabItem Header="웨이퍼" DataContext="{Binding Wafer}">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="240" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="340" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ── 왼쪽: 올리기 · 격자 · 검사 ── -->
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="6">
+                    <GroupBox Header="합성 웨이퍼 (demo 명령과 같은 그림)" Padding="4">
+                        <StackPanel>
+                            <UniformGrid Columns="2">
+                                <TextBlock Text="열" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding SynCols}" Margin="0,1" />
+                                <TextBlock Text="행" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding SynRows}" Margin="0,1" />
+                                <TextBlock Text="피치(px)" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding SynPitch}" Margin="0,1" />
+                                <TextBlock Text="결함 수" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding SynDefects}" Margin="0,1" />
+                                <TextBlock Text="기울기(°)" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding SynAngle}" Margin="0,1" />
+                                <TextBlock Text="씨" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding SynSeed}" Margin="0,1" />
+                            </UniformGrid>
+                            <CheckBox Content="원판으로 그리기 (원판 밖을 어둡게)" IsChecked="{Binding SynRound}" Margin="0,4,0,0" />
+                            <Button Content="그리기" Command="{Binding DrawCommand}" Margin="0,4,0,0" />
+                            <TextBlock FontSize="10" Foreground="Gray" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="기울기 0.05° 넘으면 warp read 가 없어 멈추고, 2° 넘으면 정렬을 못 믿어 멈춘다 — 둘 다 직접 보려고 둔 칸이다." />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="이미지 파일" Padding="4" Margin="0,6,0,0">
+                        <StackPanel>
+                            <Button Content="열기…" Command="{Binding OpenCommand}" />
+                            <TextBlock FontSize="10" Foreground="Gray" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="통째로 읽지 않는다 — die 를 볼 때 그 칸과 이웃만 뜯어 온다. 정렬은 아래 '표식 정렬' 칸에서." />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="격자" Padding="4" Margin="0,6,0,0">
+                        <StackPanel>
+                            <UniformGrid Columns="2">
+                                <TextBlock Text="열" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding GridCols}" Margin="0,1" />
+                                <TextBlock Text="행" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding GridRows}" Margin="0,1" />
+                                <TextBlock Text="피치(px)" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding GridPitch}" Margin="0,1" />
+                                <TextBlock Text="die(0,0) x" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding GridOriginX}" Margin="0,1" />
+                                <TextBlock Text="die(0,0) y" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding GridOriginY}" Margin="0,1" />
+                                <TextBlock Text="원판 x" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding GridCircleX}" Margin="0,1" />
+                                <TextBlock Text="원판 y" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding GridCircleY}" Margin="0,1" />
+                                <TextBlock Text="원판 반지름" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding GridCircleRadius}" Margin="0,1" />
+                                <TextBlock Text="가장자리 여유" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding GridEdgeExclusion}" Margin="0,1" />
+                            </UniformGrid>
+                            <TextBlock FontSize="10" Foreground="Gray" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="die(0,0) 자리 — 표식으로 정렬하면 '대략 자리'로 쓰고 정렬이 정확히 고친다(피치의 절반 안이어야 die 번호가 맞는다). 합성은 0 이면 된다." />
+                            <TextBlock FontSize="10" Foreground="Gray" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="원판은 사진 좌표 · 반지름 0 = 원판 안 씀(사각형 웨이퍼). 합성 원판은 그리면 채워지고, 파일을 열면 비워진다. 가장자리 여유(px)만큼은 안 본다 — 원을 맞춘 오차·노치를 가린다." />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="표식 정렬 — 웨이퍼가 놓인 자리를 찾는다" Padding="4" Margin="0,6,0,0">
+                        <StackPanel>
+                            <TextBlock Text="{Binding MarkText}" TextWrapping="Wrap" />
+                            <UniformGrid Columns="2" Margin="0,4,0,0">
+                                <Button Content="표식 열기…" Command="{Binding OpenMarkCommand}" Margin="0,0,2,0" />
+                                <Button Content="빼기" Command="{Binding ClearMarkCommand}" Margin="2,0,0,0" />
+                            </UniformGrid>
+                            <TextBlock Text="표식 위치 (x,y; x,y)" Margin="0,4,0,0" />
+                            <TextBox Text="{Binding MarkExpect}" Margin="0,1" />
+                            <UniformGrid Columns="2" Margin="0,2,0,0">
+                                <TextBlock Text="찾는 범위(px)" VerticalAlignment="Center" />
+                                <TextBox Text="{Binding MarkPadding}" Margin="0,1" />
+                            </UniformGrid>
+                            <TextBlock FontSize="10" Foreground="Gray" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="명령행 --mark · --expect · --mark-padding 과 같다. 표식 위치는 die(0,0) 을 (0,0) 으로 본 설계 좌표로 2개 이상. 찾는 범위 0 = 사진 전체(원판 원본은 통째로 못 읽으니 꼭 준다)." />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="사람이 정하는 die (수동 지정)" Padding="4" Margin="0,6,0,0">
+                        <StackPanel>
+                            <TextBox Text="{Binding ZoneText}" Margin="0,1" />
+                            <TextBlock FontSize="10" Foreground="Gray" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="열,행=E1|E0|off 를 ; 로 이어 적는다 (예: 2,3=off; 3,3=off). 자동 판정 뒤에 덮어쓴다 — 노치처럼 원 판정이 틀리는 die 에. off 는 die 전체를 검사에서 뺀다." />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="E0 레시피 — 가장자리 (골든 없음)" Padding="4" Margin="0,6,0,0">
+                        <StackPanel>
+                            <TextBlock Text="{Binding E0Text}" TextWrapping="Wrap" />
+                            <UniformGrid Columns="2" Margin="0,4,0,0">
+                                <Button Content="열기…" Command="{Binding OpenE0Command}" Margin="0,0,2,0" />
+                                <Button Content="빼기" Command="{Binding ClearE0Command}" Margin="2,0,0,0" />
+                            </UniformGrid>
+                            <TextBlock FontSize="10" Foreground="Gray" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="die 탭 그래프는 E1 로 쓴다. 원판이면 걸친 칸이 원판 밖까지 찍혀 있으니 원판 밖을 가리는 레시피(samples/recipes/die.dark.masked.json)를 연다." />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="이웃 — 골든 고르기" Padding="4" Margin="0,6,0,0">
+                        <StackPanel>
+                            <CheckBox Content="가까운 순서로 (최대 3장)" IsChecked="{Binding UseNearest}" />
+                            <TextBlock FontSize="10" Foreground="Gray" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="안 고르면 같은 행 좌우 1칸(최대 2장). 레시피가 요구하는 장수와 짝이 안 맞으면 die 가 '검사 실패' 로 남는다." />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <Button Content="▶ 검사" Command="{Binding InspectCommand}" FontWeight="Bold" Height="32" Margin="0,10,0,0" />
+                    <Button Content="멈춤" Command="{Binding CancelCommand}" Margin="0,4,0,0" />
+                    <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ── 가운데: 웨이퍼 위에 맵 ── -->
+            <DockPanel Grid.Column="1" Margin="4">
+                <TextBlock DockPanel.Dock="Top" Text="{Binding SceneTitle}" FontWeight="Bold" Margin="2,0,0,4" />
+
+                <!-- 범례 — 색이 무엇을 뜻하는지 화면이 직접 말한다 -->
+                <WrapPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="2,6,0,0">
+                    <Rectangle Width="14" Height="14" Stroke="#43A047" Fill="#2243A047" StrokeThickness="2" />
+                    <TextBlock Text=" 깨끗함   " VerticalAlignment="Center" />
+                    <Rectangle Width="14" Height="14" Stroke="#E53935" Fill="#33E53935" StrokeThickness="2" />
+                    <TextBlock Text=" 결함 있음   " VerticalAlignment="Center" />
+                    <Rectangle Width="14" Height="14" Stroke="#78909C" Fill="#2278909C" StrokeThickness="2" />
+                    <TextBlock Text=" E0 깨끗함   " VerticalAlignment="Center" />
+                    <Rectangle Width="14" Height="14" Stroke="#FB8C00" Fill="#33FB8C00" StrokeThickness="2" />
+                    <TextBlock Text=" E0 결함   " VerticalAlignment="Center" />
+                    <Rectangle Width="14" Height="14" Stroke="#424242" Fill="#AA616161" StrokeThickness="2" />
+                    <TextBlock Text=" × 검사 실패 — 안 본 것   " VerticalAlignment="Center" FontWeight="Bold" />
+                    <TextBlock Text="빈칸 = 원판 밖(die 아님)   " VerticalAlignment="Center" Foreground="Gray" />
+                    <Rectangle Width="14" Height="14" Stroke="#1E88E5" StrokeThickness="2" />
+                    <TextBlock Text=" 선택" VerticalAlignment="Center" />
+                </WrapPanel>
+
+                <Border Background="#FAFAFA" BorderBrush="#DDD" BorderThickness="1">
+                    <!--
+                        ★★ die 탭 결함 오버레이와 같은 수법 — 좌표를 다시 계산하지 않는다.
+                          원본 픽셀 크기의 판을 깔고, die 칸(Roi)과 결함(Bounds)을 적힌 좌표 그대로 얹는다.
+                          미리보기 그림은 솎아 낸 것이라도 판 크기로 늘여 붙이니 칸이 안 어긋난다.
+                    -->
+                    <Viewbox Stretch="Uniform" Margin="6">
+                        <Grid Width="{Binding SceneWidth}" Height="{Binding SceneHeight}">
+                            <Image Source="{Binding Overview}" Stretch="Fill" />
+
+                            <ListBox ItemsSource="{Binding Dies}" SelectedItem="{Binding SelectedDie}"
+                                     Background="Transparent" BorderThickness="0" Padding="0"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <Canvas />
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Canvas.Left" Value="{Binding Roi.X}" />
+                                        <Setter Property="Canvas.Top" Value="{Binding Roi.Y}" />
+                                        <!-- 기본 테두리·여백을 걷어 낸다 — 남으면 칸이 몇 픽셀씩 밀린다 -->
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <ContentPresenter />
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <!-- ★ 원판 밖 — die 가 아니다. 칸을 아예 안 그린다(누를 수도 없다) -->
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding OffWafer}" Value="True">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Width="{Binding Roi.Width}" Height="{Binding Roi.Height}"
+                                              Background="Transparent" Cursor="Hand" ToolTip="{Binding}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="3*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="3*" />
+                                            </Grid.RowDefinitions>
+
+                                            <!--
+                                                ★★ 칸 색은 Summary.State 로만 정한다 — DefectCount 로 정하면
+                                                  터진 die(0개)가 깨끗한 die 와 같은 색이 된다. 5주차에 막은 그 구멍이다.
+                                            -->
+                                            <Rectangle Grid.RowSpan="2" Grid.ColumnSpan="2"
+                                                       StrokeThickness="{Binding DataContext.StrokePx, RelativeSource={RelativeSource AncestorType=ListBox}}">
+                                                <Rectangle.Style>
+                                                    <Style TargetType="Rectangle">
+                                                        <Setter Property="Stroke" Value="#9E9E9E" />
+                                                        <Setter Property="Fill" Value="Transparent" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Summary.State}" Value="Clean">
+                                                                <Setter Property="Stroke" Value="#43A047" />
+                                                                <Setter Property="Fill" Value="#2243A047" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Summary.State}" Value="Defective">
+                                                                <Setter Property="Stroke" Value="#E53935" />
+                                                                <Setter Property="Fill" Value="#33E53935" />
+                                                            </DataTrigger>
+                                                            <!-- E0(가장자리) — 교수님 맵처럼 청회, 결함이면 주황 -->
+                                                            <MultiDataTrigger>
+                                                                <MultiDataTrigger.Conditions>
+                                                                    <Condition Binding="{Binding Die.Zone}" Value="E0" />
+                                                                    <Condition Binding="{Binding Summary.State}" Value="Clean" />
+                                                                </MultiDataTrigger.Conditions>
+                                                                <Setter Property="Stroke" Value="#78909C" />
+                                                                <Setter Property="Fill" Value="#2278909C" />
+                                                            </MultiDataTrigger>
+                                                            <MultiDataTrigger>
+                                                                <MultiDataTrigger.Conditions>
+                                                                    <Condition Binding="{Binding Die.Zone}" Value="E0" />
+                                                                    <Condition Binding="{Binding Summary.State}" Value="Defective" />
+                                                                </MultiDataTrigger.Conditions>
+                                                                <Setter Property="Stroke" Value="#FB8C00" />
+                                                                <Setter Property="Fill" Value="#33FB8C00" />
+                                                            </MultiDataTrigger>
+                                                            <DataTrigger Binding="{Binding Summary.State}" Value="Failed">
+                                                                <Setter Property="Stroke" Value="#424242" />
+                                                                <Setter Property="Fill" Value="#AA616161" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                                <Setter Property="Stroke" Value="#1E88E5" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Rectangle.Style>
+                                            </Rectangle>
+
+                                            <!-- 결함 — die 안 좌표(Bounds)라 칸 안에 그대로 얹힌다 -->
+                                            <ItemsControl Grid.RowSpan="2" Grid.ColumnSpan="2"
+                                                          ItemsSource="{Binding Defects.Items}" IsHitTestVisible="False">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <Canvas />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemContainerStyle>
+                                                    <Style TargetType="ContentPresenter">
+                                                        <Setter Property="Canvas.Left" Value="{Binding Bounds.X}" />
+                                                        <Setter Property="Canvas.Top" Value="{Binding Bounds.Y}" />
+                                                    </Style>
+                                                </ItemsControl.ItemContainerStyle>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Rectangle Width="{Binding Bounds.Width}" Height="{Binding Bounds.Height}"
+                                                                   Stroke="#FFD600"
+                                                                   StrokeThickness="{Binding DataContext.StrokePx, RelativeSource={RelativeSource AncestorType=ListBox}}" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+
+                                            <!-- 결함 수 — 칸 왼쪽 위 -->
+                                            <Viewbox Grid.Row="0" Grid.Column="0" IsHitTestVisible="False">
+                                                <TextBlock Text="{Binding Summary.DefectCount}" Foreground="#B71C1C" FontWeight="Bold" Margin="2">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Summary.State}" Value="Defective">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Viewbox>
+
+                                            <!-- 검사 실패 — 칸 전체에 × -->
+                                            <Viewbox Grid.RowSpan="2" Grid.ColumnSpan="2" IsHitTestVisible="False">
+                                                <TextBlock Text="×" Foreground="White" FontWeight="Bold">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Summary.State}" Value="Failed">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Viewbox>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Viewbox>
+                </Border>
+            </DockPanel>
+
+            <!-- ── 오른쪽: 멈춘 까닭 · 결과 · 정렬 · 골든 · 선택한 die ── -->
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="6">
+                    <!-- ★★ 멈춘 까닭이 맨 위다. 맵이 비어 있는 이유를 제일 먼저 읽게 -->
+                    <Border Background="#FFEBEE" BorderBrush="#E53935" BorderThickness="1" Padding="6" Margin="0,0,0,6">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding StopReason}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding StopReason}" TextWrapping="Wrap" Foreground="#B71C1C" />
+                    </Border>
+
+                    <!-- ★★ 터진 die — 결과 숫자보다 먼저 -->
+                    <Border Background="#FFF3E0" BorderBrush="#FB8C00" BorderThickness="1" Padding="6" Margin="0,0,0,6">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FailureText}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding FailureText}" TextWrapping="Wrap" Foreground="#E65100" FontWeight="Bold" />
+                    </Border>
+
+                    <GroupBox Header="결과" Padding="4">
+                        <StackPanel>
+                            <!-- ★ 어떤 레시피로 돌았나 — 숫자보다 먼저 본다. 시드면 설명에 "실데이터 값 아님" 이 뜬다 -->
+                            <TextBlock Text="{Binding RecipeText}" TextWrapping="Wrap" Foreground="#555" FontSize="11" />
+
+                            <!-- ★ 격자가 사진 일부만 덮으면 숫자보다 먼저 — 귀퉁이만 보고 '깨끗함' 이 나올 수 있다 -->
+                            <TextBlock Text="{Binding CoverageWarning}" TextWrapping="Wrap"
+                                       Foreground="#E65100" FontWeight="Bold" Margin="0,4,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CoverageWarning}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <!-- ★ 원판인데 E0 레시피가 원판 밖을 안 가릴 때 — 숫자보다 먼저 -->
+                            <TextBlock Text="{Binding EdgeWarning}" TextWrapping="Wrap"
+                                       Foreground="#E65100" FontWeight="Bold" Margin="0,4,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding EdgeWarning}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <TextBlock Text="{Binding SummaryText}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="정렬" Padding="4" Margin="0,6,0,0">
+                        <TextBlock Text="{Binding AlignmentText}" TextWrapping="Wrap" />
+                    </GroupBox>
+
+                    <GroupBox Header="골든 — 레시피가 요구하는 장수" Padding="4" Margin="0,6,0,0">
+                        <StackPanel>
+                            <TextBlock Text="{Binding NeedText}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding NeedWarning}" TextWrapping="Wrap" Foreground="#E65100" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="선택한 die" Padding="4" Margin="0,6,0,0">
+                        <StackPanel>
+                            <TextBlock Text="{Binding SelectedDie}" TextWrapping="Wrap" />
+                            <TextBlock Text="맵의 칸을 누르면 그 die 의 결함이 여기 뜬다" Foreground="Gray">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding SelectedDie}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <DataGrid ItemsSource="{Binding SelectedDie.Defects.Items}" Margin="0,4,0,0"
+                                      SelectedItem="{Binding SelectedDefect}"
+                                      AutoGenerateColumns="False" IsReadOnly="True" MaxHeight="220"
+                                      HeadersVisibility="Column" GridLinesVisibility="Horizontal" FontSize="11">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="#" Binding="{Binding Id}" Width="36" />
+                                    <DataGridTextColumn Header="die 안 위치" Binding="{Binding Bounds}" Width="*" />
+                                    <DataGridTextColumn Header="면적" Binding="{Binding Area}" Width="52" />
+                                    <DataGridTextColumn Header="밝기" Binding="{Binding MeanIntensity, StringFormat=F2}" Width="48" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- ★ 맵은 축소본이라 결함 모양이 안 보인다. 표에서 결함을 고르면 그 둘레만 원본 해상도로 읽어 보인다.
+                         그림 크기의 판 위에 결함 네모를 그대로 얹고, 늘이고 줄이는 건 Viewbox 가 한다(맵과 같은 수법). -->
+                    <GroupBox Header="결함 원본 보기" Padding="4" Margin="0,6,0,0">
+                        <StackPanel>
+                            <TextBlock Text="위 표에서 결함을 고르면 그 둘레를 원본 해상도로 보여 준다" Foreground="Gray" TextWrapping="Wrap">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding DefectPatch}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <Viewbox Stretch="Uniform" MaxHeight="260">
+                                <Viewbox.Style>
+                                    <Style TargetType="Viewbox">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding DefectPatch}" Value="{x:Null}">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Viewbox.Style>
+                                <Grid Width="{Binding PatchWidth}" Height="{Binding PatchHeight}">
+                                    <Image Source="{Binding DefectPatch}" Stretch="Fill"
+                                           RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                                    <Canvas>
+                                        <Rectangle Canvas.Left="{Binding DefectBox.X}" Canvas.Top="{Binding DefectBox.Y}"
+                                                   Width="{Binding DefectBox.Width}" Height="{Binding DefectBox.Height}"
+                                                   Stroke="#1E88E5" StrokeThickness="{Binding PatchStroke}" />
+                                    </Canvas>
+                                </Grid>
+                            </Viewbox>
+                            <TextBlock Text="{Binding DefectText}" TextWrapping="Wrap" FontSize="11" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </GroupBox>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </TabItem>
+    </TabControl>
 </Window>

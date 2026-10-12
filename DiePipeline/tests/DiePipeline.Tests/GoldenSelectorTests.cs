@@ -298,4 +298,29 @@ public sealed class GoldenSelectorTests
 
         Assert.Empty(rois);
     }
+
+    /// <summary>
+    /// ★ 원판 — 걸친 칸(E0)과 원판 밖 칸은 골든이 안 된다.
+    ///   반쪽짜리 die 나 빈 배경과 비교하면 그 차이가 전부 결함이 된다.
+    /// </summary>
+    [Fact]
+    public void 원판에서_걸침과_원판_밖은_골든이_안_된다()
+    {
+        DieGrid grid = DieGridBuilder.Build(new WaferSpec
+        {
+            Cols = 5,
+            Rows = 5,
+            PitchX = 100,
+            PitchY = 100,
+            Circle = new WaferCircle(250, 250, 200),
+        });
+
+        // die(2,1) 은 온전(E1)인데 같은 행 좌우가 둘 다 걸침(E0)이다
+        Assert.Empty(GoldenSelector.Pick(grid, grid.At(2, 1), NeighborStrategy.SameRow1));
+
+        IReadOnlyList<DieOrigin> nearest = GoldenSelector.Pick(grid, grid.At(2, 1), NeighborStrategy.Nearest, want: 3);
+
+        Assert.All(nearest, d => Assert.Equal(WaferZone.E1, d.Zone));
+        Assert.Equal(new[] { (2, 2), (2, 3) }, Where(nearest));
+    }
 }

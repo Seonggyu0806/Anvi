@@ -5,6 +5,8 @@ using DiePipeline.Core.Imaging;
 using DiePipeline.Core.Pipeline;
 using DiePipeline.Core.Registry;
 using DiePipeline.Cv.Imaging;
+using DiePipeline.Wafer.Config;
+using DiePipeline.Wafer.Execution;
 using DiePipeline.Wpf.Imaging;
 using OpenCvSharp;
 
@@ -43,6 +45,15 @@ public static class PreviewService
 {
     private static readonly Roi InspectRegion = new(150, 0, 40, 40);
 
+    /// <summary>
+    /// 미리보기용 원판 — 검사 조각(150,0,40,40)의 오른쪽 아래 모서리를 중심으로 반지름 35.
+    /// 원판 가장자리가 조각을 비스듬히 지나가 <b>왼쪽 위가 원판 밖</b>이 된다(E0 die 모양).
+    /// </summary>
+    private static readonly WaferCircle PreviewCircle = new(190, 40, 35);
+
+    /// <summary>원판 밖 밝기 — 합성 원판 웨이퍼와 같은 어두운 배경. E0 임계(0.15)보다 어둡다.</summary>
+    private const double OffWafer = 0.05;
+
     private static readonly Roi[] NeighborRegions =
     [
         new(0, 0, 40, 40),
@@ -60,6 +71,20 @@ public static class PreviewService
 
         using Mat inspect = source.ReadRegion(InspectRegion);
 
+        // ★ 레시피가 원판 마스크를 받으면 — 검사 조각을 원판에 걸친 die 처럼 만든다.
+        //   원판 밖을 어둡게 칠하고(배경), 웨이퍼 검사와 같은 함수로 만든 마스크를 같이 넘긴다.
+        //   안 받는 레시피(die-to-die)에는 아무것도 안 바뀐다.
+        using Mat? waferMask = recipe.ContextInputs.Contains(ReservedContext.WaferMask)
+            ? WaferInspection.WaferMaskOf(InspectRegion, PreviewCircle)
+            : null;
+
+        if (waferMask is not null)
+        {
+            using Mat outside = new();
+            Cv2.Compare(waferMask, Scalar.All(0), outside, CmpTypes.EQ);
+            inspect.SetTo(Scalar.All(OffWafer), outside);
+        }
+
         List<Mat> neighbors = [];
 
         try
@@ -74,6 +99,11 @@ public static class PreviewService
             // ★ SetInput — 소유권이 우리에게 남는다. 칠판이 이걸 놓아 버리면 안 된다.
             context.SetInput(ReservedContext.Roi, inspect);
             context.SetInput(ReservedContext.ChipRegions, (IReadOnlyList<Mat>)neighbors);
+
+            if (waferMask is not null)
+            {
+                context.SetInput(ReservedContext.WaferMask, waferMask);
+            }
 
             List<PreviewItem> items = [];
 

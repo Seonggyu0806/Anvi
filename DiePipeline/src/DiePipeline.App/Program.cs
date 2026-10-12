@@ -6,6 +6,7 @@ using DiePipeline.Core.Pipeline;
 using DiePipeline.Core.Registry;
 using DiePipeline.Cv;
 using DiePipeline.Cv.Imaging;
+using DiePipeline.Wafer.Execution;
 using OpenCvSharp;
 
 namespace DiePipeline.App;
@@ -30,6 +31,12 @@ public static class Program
         catch (RecipeValidationException error)
         {
             // 검증 오류는 이미 사람이 읽을 수 있게 정리돼 있다. 스택은 소음이다.
+            Console.Error.WriteLine(error.Message);
+            return 2;
+        }
+        catch (WaferRecipeException error)
+        {
+            // 웨이퍼 레시피를 토막 낼 수 없다 — 블록을 잘못 이은 것도 레시피 오류다.
             Console.Error.WriteLine(error.Message);
             return 2;
         }
@@ -286,6 +293,7 @@ public static class Program
               diepipe run   -r <레시피.json> -i <이미지> [옵션]     레시피를 돌린다
               diepipe probe -i <이미지> [옵션]                      원본 생김새를 본다
               diepipe wafer -i <이미지> --e1 <레시피.json> [옵션]   웨이퍼 한 장을 통째로
+              diepipe wafer -i <이미지> --recipe <웨이퍼.json>      웨이퍼 레시피 파일 하나로
               diepipe demo  -o <경로.bmp> [옵션]                   시험용 합성 웨이퍼를 그린다
 
             셀 자르기 (가로로 이어진 칸을 잘라 하나를 검사, 나머지를 이웃으로 쓴다)
@@ -303,6 +311,12 @@ public static class Program
               --save-mask <경로>  이진 마스크를 PNG로 저장
               --mask-key <이름>   저장할 칠판 이름표    기본 mask
 
+            wafer 레시피 (격자·표식·원판·수동 지정을 파일 하나에 — 견본 samples/wafer/demo.wafer.json)
+              -r, --recipe <웨이퍼.json>  블록 다섯: 표식 찾기 → 자세 계산 → die 전부 검사 → 웨이퍼 좌표 → 결과 추리기
+                                ★ 안에 적힌 die 레시피·표식 조각 경로는 그 파일이 있는 폴더 기준이다
+                                ★ -i 말고 다른 옵션과 같이 못 쓴다 — 값은 파일에서만 온다
+                                ⚠ 실데이터 레시피는 레포 밖(사진 옆)에 둔다 — 격자·피치·원판이 들어간다
+
             wafer 전용
               --e1 <레시피>     E1 die 레시피 (필수). 이웃으로 골든을 만든다
               --e0 <레시피>     E0 die 레시피. 골든 없이 단일 임계 (die.dark)
@@ -310,7 +324,18 @@ public static class Program
               --pitch <n|x,y>   die 원점 사이 간격       기본 100
               --die <n|w,h>     die 한 장 크기           기본 = 피치
               --origin <x,y>    첫 die 의 왼쪽 위        기본 0,0
+                                ★ --mark 와 같이 주면 '정렬 전 대략 자리' — 정렬이 정확히 고친다
               --edge-rings <n>  바깥 몇 겹을 E0 로 볼까  기본 0 (전부 E1)
+              --circle <x,y,r>  원판 — 중심·반지름(사진 좌표). 주면 칸을 원으로 나눈다
+                                온전 = E1 · 걸침 = E0 · 원판 밖 = die 아님(검사 안 함)
+                                ★ --edge-rings 와 같이 못 쓴다
+                                ★ 걸친 칸은 원판 밖까지 찍혀 있다 — --e0 는 die.dark.masked 로
+              --edge-exclusion <px>  원판 가장자리에서 이만큼 안쪽까지는 안 본다  기본 0
+                                ★ 잰 원은 그대로 — 검사에 쓰는 원만 줄인다(칸 판정·원판 마스크 둘 다)
+                                ★ 원을 맞춘 오차·노치(원판의 홈)를 가린다 · --circle 과 같이만 쓴다
+              --zone <열,행>=<E1|E0|off>  die 하나의 존을 사람이 정한다 · 여러 번 쓴다 (예: 2,3=off)
+                                ★ 자동 판정 뒤에 덮어쓴다 — 노치·플랫처럼 원 판정이 틀리는 die 에 쓴다
+                                ★ off 는 die 전체를 검사에서 뺀다. 결과 머리에 목록이 찍힌다
               --neighbors <법>  same-row1 | nearest      기본 same-row1
               --goldens <n>     nearest 일 때 최대 장수  기본 3
 
@@ -318,7 +343,10 @@ public static class Program
               --mark <조각.bmp>   찾을 정렬 표식. 없으면 반듯하게 놓였다고 본다
               --expect <x,y>      그 표식의 설계 위치. 2개 이상 · 여러 번 쓴다
                                   ★ die(0,0) 을 (0,0) 으로 본 좌표다. 사진 좌표가 아니다
-                                  ★ --origin 과 같이 못 쓴다 (이동이 두 번 들어간다)
+              --mark-padding <px> 표식마다 '대략 원점 + --expect' ± 이만큼 창만 읽는다
+                                  없으면 사진 전체를 읽는다 — 원판 원본은 통째로 못 읽으니 꼭 준다
+                                  ★ 표식이 die 마다 반복되면 대략 원점이 피치의 절반 안이어야 한다
+                                    (넘으면 옆 표식에 붙어 die 번호가 통째로 밀린다)
               --align-min-score <n>  표식 평균 점수 문턱      기본 0.8
               --align-max-angle <도> 이보다 돌면 거부         기본 2.0
                                   ★ 못 믿으면 검사를 시작조차 안 한다 (끝값 5)
@@ -344,6 +372,8 @@ public static class Program
                                 ★ 정렬 표식 2개를 여백에 그리고, 표식 조각을
                                   <경로>.mark.bmp 로 따로 저장한다 — 6-2 정렬이 찾을 대상이다
                                 ★ 준 각도·이동이 곧 정답이다. 정렬이 그걸 되찾으면 맞는 것
+              --round           원판으로 그린다 — 원판 밖을 어둡게 칠하고 원도 정답으로 출력한다
+                                ★ 결함은 원판 안에 온전히 들어간 die 에만 심는다 · 6×6 이상 권장
 
             끝값: 0 = 결함 없음 · 3 = 결함 있음 · 4 = 검사가 터진 die 있음
                   5 = 정렬을 믿을 수 없음(검사 안 함) · 1 = 오류 · 2 = 레시피 오류

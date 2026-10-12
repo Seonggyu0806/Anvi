@@ -63,6 +63,17 @@ public sealed class ValidatorTests
         public IPipelineNode Create(NodeConfig config) => new NoopNode(config.Id);
     }
 
+    /// <summary>입력 하나 · 출력 하나짜리 가짜 블록 — 포트 종류만 바꿔 끼워 검사를 본다.</summary>
+    private sealed class FakeFactory(string type, PortDescriptor input, PortDescriptor output) : INodeFactory
+    {
+        public string TypeName => type;
+
+        public INodeDescriptor Descriptor { get; } = new NodeDescriptor(type, "웨이퍼",
+            inputs: [input], outputs: [output], @params: []);
+
+        public IPipelineNode Create(NodeConfig config) => new NoopNode(config.Id);
+    }
+
     private static NodeRegistry Registry()
     {
         NodeRegistry registry = new();
@@ -302,5 +313,40 @@ public sealed class ValidatorTests
             Registry());
 
         Assert.Contains(errors, e => e.Contains("홀수"));
+    }
+
+    // ─────────────────────────────── 웨이퍼 레시피 — 정렬 예약 입력 · 새 종류
+
+    /// <summary>★ 정렬 예약 입력 둘은 그림이다 — 실행기가 표식 창과 표식 조각을 올린다(교수님과 같은 이름).</summary>
+    [Fact]
+    public void 정렬_예약_입력은_그림이다()
+    {
+        Assert.Equal(PortKind.Image, ReservedContext.Kinds[ReservedContext.AlignSrc]);
+        Assert.Equal(PortKind.Image, ReservedContext.Kinds[ReservedContext.AlignTemplate]);
+    }
+
+    /// <summary>
+    /// ★ 웨이퍼 레시피 블록이 주고받을 새 종류도 같은 검사를 받는다 —
+    ///   '표식 자리 목록' 을 '놓인 자세' 칸에 꽂으면 실행 전에 거부한다.
+    /// </summary>
+    [Fact]
+    public void 웨이퍼_종류도_짝이_안_맞으면_잡는다()
+    {
+        NodeRegistry registry = new();
+        registry.Register(new FakeFactory("Find",
+            new PortDescriptor("src", "표식 창"), new PortDescriptor("matches", "찾은 자리", PortKind.MatchList)));
+        registry.Register(new FakeFactory("Place",
+            new PortDescriptor("alignment", "놓인 자세", PortKind.Alignment), new PortDescriptor("grid", "격자", PortKind.DieGrid)));
+
+        IReadOnlyList<string> errors = RecipeValidator.Validate(
+            Parse("""
+                { "id": "find", "type": "Find", "inputs": { "src": "alignSrc" }, "outputs": { "matches": "m" } },
+                { "id": "place", "type": "Place", "inputs": { "alignment": "m" }, "outputs": { "grid": "g" } }
+                """, "[ \"alignSrc\" ]"),
+            registry);
+
+        string error = Assert.Single(errors);
+        Assert.Contains("Alignment", error);
+        Assert.Contains("MatchList", error);
     }
 }

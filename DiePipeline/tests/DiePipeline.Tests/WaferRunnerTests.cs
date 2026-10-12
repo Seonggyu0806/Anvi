@@ -292,6 +292,37 @@ public sealed class WaferRunnerTests
         Assert.Equal(0, summary.Col);
         Assert.Equal(WaferZone.E1, summary.Zone);
         Assert.Equal(1, summary.DefectCount);
+        Assert.Equal(DieState.Defective, summary.State);
+    }
+
+    /// <summary>
+    /// ★★ 터진 die 는 요약에서도 깨끗한 die 와 달라야 한다.
+    ///   5주차 전까지 둘 다 <c>{ DefectCount: 0 }</c> 이었다 — 맵이 요약을 그대로 찍으면
+    ///   "안 봤는데 깨끗해 보이는" 칸이 생긴다. 완료 기준 7번이 막으려는 바로 그것이다.
+    /// </summary>
+    [Fact]
+    public void 터진_die는_요약에서도_깨끗함과_구분된다()
+    {
+        int seen = 0;
+        DefectList Boom(Roi roi, IReadOnlyList<Roi> goldens)
+        {
+            seen++;
+            return seen == 2 ? throw new InvalidDataException("읽기 실패") : DefectList.Empty;
+        }
+
+        WaferRunResult result = WaferRunner.Run(Grid(3, 1), Boom, null, Options());
+
+        DieResult clean = result.Dies[0].Summary;
+        DieResult failed = result.Dies[1].Summary;
+
+        // 숫자만 보면 둘 다 0 — 구분이 안 된다.
+        Assert.Equal(clean.DefectCount, failed.DefectCount);
+
+        // 상태가 그걸 막는다.
+        Assert.Equal(DieState.Clean, clean.State);
+        Assert.Equal(DieState.Failed, failed.State);
+        Assert.Contains("읽기 실패", failed.Failure);
+        Assert.Null(clean.Failure);
     }
 
     // ─────────────────────────────── 거부해야 하는 것
@@ -323,5 +354,49 @@ public sealed class WaferRunnerTests
     {
         Assert.Throws<ArgumentNullException>(
             () => WaferRunner.Run(Grid(3, 1), null!, null, Options()));
+    }
+
+    // ─────────────────────────────── 원판 밖
+
+    /// <summary>5×5 · 원 중심 (250,250) 반지름 200 — 귀퉁이 넷이 원판 밖, 16칸이 걸침, 5칸이 온전.</summary>
+    private static DieGrid Round()
+        => DieGridBuilder.Build(new WaferSpec
+        {
+            Cols = 5, Rows = 5, PitchX = 100, PitchY = 100, Circle = new WaferCircle(250, 250, 200),
+        });
+
+    /// <summary>
+    /// ★ 원판 밖 칸은 die 가 아니다 — 검사 함수를 안 부르고, 실패도 아니고, die 수에도 안 든다.
+    ///   교수님 결과 계약은 E1 / E0 둘뿐이다.
+    /// </summary>
+    [Fact]
+    public void 원판_밖_칸은_검사하지_않고_세지도_않는다()
+    {
+        Recorder recorder = new();
+
+        WaferRunResult result = WaferRunner.Run(Round(), recorder.InspectE1, recorder.InspectE0, Options());
+
+        Assert.Equal(25, result.Dies.Count);      // 맵을 그리려고 자리는 다 있다
+        Assert.Equal(21, result.DieCount);        // 귀퉁이 넷은 die 가 아니다
+        Assert.Equal(5, recorder.E1.Count);
+        Assert.Equal(16, recorder.E0.Count);
+        Assert.Empty(result.Failures);
+
+        DieInspection corner = result.Dies[0];
+        Assert.True(corner.OffWafer);
+        Assert.Equal(DieState.OffWafer, corner.Summary.State);
+    }
+
+    /// <summary>원판 밖 칸은 이미지 밖에 있어도 '실패' 가 아니다 — 볼 것이 없을 뿐이다.</summary>
+    [Fact]
+    public void 원판_밖_칸은_이미지_밖이어도_실패가_아니다()
+    {
+        // 맨 아래 행(y 400~500)이 이미지 밖이다
+        WaferRunResult result = WaferRunner.Run(
+            Round(), new Recorder().InspectE1, new Recorder().InspectE0, Options(w: 500, h: 400));
+
+        Assert.False(result.Dies[20].Failed);     // die(0,4) — 원판 밖
+        Assert.NotEmpty(result.Failures);         // 같은 행의 걸친 칸은 실패로 남는다
+        Assert.All(result.Failures, d => Assert.NotEqual(WaferZone.Outside, d.Die.Zone));
     }
 }

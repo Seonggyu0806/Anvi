@@ -17,6 +17,9 @@ obj/
 crop_*
 patch_*
 realdata_*
+# ↓ 예외 하나 — 코드가 그린 합성 표식 조각이다(실사진 아님). diepipe demo 가 그리는 조각과
+#   픽셀까지 같은지 시험(WaferRecipeRunnerTests)이 본다. 다른 .bmp 는 그대로 막힌다.
+!samples/wafer/features/demo_mark.bmp
 
 # 원본은 레포 밖에 둔다. 폴더 이름도 여기 적지 않는다.
 

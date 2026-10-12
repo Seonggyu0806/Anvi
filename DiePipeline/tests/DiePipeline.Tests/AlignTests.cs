@@ -192,7 +192,7 @@ public sealed class AlignTests : IDisposable
     ///   합성 결함이 아니라 "같은 그림이 옮겨진 것"이라 <b>정답을 정확히 안다.</b>
     ///
     ///   실데이터에서도 같은 방법으로 쟀다 — 1px 밀림을 1.000으로 되찾고
-    ///   차이를 100% 없앴다(docs/2-real-data.md §7).
+    ///   차이를 100% 없앴다(docs/doc_code/week-3.md §5).
     /// </summary>
     [Theory]
     [InlineData(1.0, 0.0)]

@@ -8,6 +8,14 @@ public enum PortKind
     Image,
     ImageList,      // ← 추가: 골든을 만들 정상 die들
     DefectList,
+
+    // ── 웨이퍼 레시피(5주차 §8) — 블록 사이로 흐르는 웨이퍼 쪽 데이터. 이름은 교수님과 같다.
+    //    ★ Core 는 이름만 안다. 실제 모양(정렬 결과 · 격자 · 웨이퍼 결함)은 Wafer 층에 있다.
+    //    ★ 맨 뒤에 붙인다 — 앞의 세 값의 번호가 바뀌지 않게.
+    MatchList,          // 표식 찾기가 찾은 자리 목록
+    Alignment,          // 웨이퍼가 놓인 자세(원점 · 회전 · 배율)
+    DieGrid,            // die 원점 격자 + 존
+    WaferDefectList,    // 웨이퍼 전체 결함 목록
 }
 
 /// <summary>포트 하나의 메타데이터.</summary>

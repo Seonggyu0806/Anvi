@@ -61,6 +61,18 @@ public sealed record AlignmentResult
 
     public bool Accepted => Rejection is null;
 
+    /// <summary>
+    /// 정렬을 안 했을 때 — 반듯하게 놓였다고 본 값(항등 · 받아들임).
+    /// ★ 웨이퍼 레시피에서 정렬을 안 이으면 뒤 토막(웨이퍼 좌표 블록)이 '놓인 자세' 칸으로 이 값을 받는다.
+    /// </summary>
+    public static AlignmentResult Unaligned { get; } = new()
+    {
+        Alignment = WaferAlignment.Identity,
+        PairCount = 0,
+        ResidualPx = 0,
+        ImpliedScale = 1,
+    };
+
     public override string ToString()
         => $"{Alignment}  짝 {PairCount}  어긋남 {ResidualPx:F2}px  배율추정 {ImpliedScale:F4}"
            + (Accepted ? string.Empty : $"  ✗ {Rejection}");
@@ -271,6 +283,37 @@ public static class AlignmentSolver
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 표식이 있을 법한 사진 자리 — 대략 원점 + 설계 자리. 창을 자를 때도, 짝지을 때도 이 자리를 기준으로 한다.
+    /// </summary>
+    public static IReadOnlyList<PointF> Guess(IReadOnlyList<PointF> expected, PointF prior)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+
+        return [.. expected.Select(e => new PointF(prior.X + e.X, prior.Y + e.Y))];
+    }
+
+    /// <summary>
+    /// 대략 원점(<paramref name="prior"/>) 둘레에서 풀고, die(0,0) 의 <b>실제 자리</b>까지 낸다.
+    ///
+    /// ★ 짝짓기는 '대략 원점 + 설계 자리' 와 가까운 표식끼리 — 사진 원점이 커도(실데이터) 옆 표식에 안 붙는다.
+    ///   단 대략 원점이 피치의 절반보다 틀리면 반복 표식은 옆에 붙는다(교수님 특징 탐색 §2.1 의 한계).
+    /// ★ 풀린 변환은 '있을 법한 자리 → 사진' 이라, die(0,0) 의 실제 자리 = 그 변환으로 옮긴 대략 원점이다
+    ///   (교수님 SolveAlignment 의 <c>Origin = transform.Apply(firstDieOrigin)</c> 과 같다). 대략 원점이 0 이면 그대로다.
+    /// ★ 웨이퍼 레시피의 자세 계산 블록과 명령행 · 화면(<c>WaferInspection</c>)이 이 함수 하나를 같이 쓴다.
+    /// </summary>
+    public static AlignmentResult SolveAround(
+        MatchList matches, IReadOnlyList<PointF> expected, PointF prior, AlignmentOptions options)
+    {
+        AlignmentResult solved = Solve(matches, Guess(expected, prior), options);
+        WaferAlignment found = solved.Alignment;
+
+        PointF origin = new SimilarityTransform(found.RotationDeg, found.Scale, found.Origin.X, found.Origin.Y)
+            .Apply(prior);
+
+        return solved with { Alignment = found with { Origin = origin } };
     }
 
     private static AlignmentResult Rejected(string reason, int pairCount)

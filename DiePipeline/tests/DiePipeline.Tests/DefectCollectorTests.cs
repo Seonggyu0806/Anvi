@@ -320,4 +320,75 @@ public sealed class DefectCollectorTests
         Assert.Throws<ArgumentNullException>(
             () => AbsoluteTransform.Transform(WaferDefectList.Empty, Grid(), null!));
     }
+
+    // ─────────────────────────────── 잘린 die — 기준점
+
+    /// <summary>
+    /// ★ die 안 좌표는 '잘라 읽은 자리' 기준이다(교수님 결과 계약). 왼쪽·위로 잘린 die 는 그 자리가
+    ///   die 원점과 다르니, 모을 때 얼마나 떨어졌는지(ReadOffset)를 같이 적는다. 좌표 자체는 그대로 둔다.
+    /// </summary>
+    [Fact]
+    public void 잘려_읽은_die_는_떨어진_만큼을_같이_적는다()
+    {
+        DieInspection cut = new()
+        {
+            Die = new DieOrigin(0, 0, new PointF(-30, -20), WaferZone.E0),
+            Roi = new Roi(0, 0, 70, 80),       // 사진 밖 30·20 이 잘려 나갔다
+            Defects = List(D(1, 10, 10)),
+            GoldenCount = 0,
+        };
+
+        WaferDefect only = Assert.Single(DefectCollector.Collect([cut]).Items);
+
+        Assert.Equal(new PointF(30, 20), only.ReadOffset);
+        Assert.Equal(new PointF(10, 10), only.Defect.Centroid);     // 원본은 그대로
+    }
+
+    /// <summary>잘라 읽은 자리(0) + 10 = 10 이다. die 원점(−30) + 10 = −20 이 아니다.</summary>
+    [Fact]
+    public void 잘린_die_의_결함은_잘라_읽은_자리_기준으로_변환된다()
+    {
+        DieGrid grid = DieGridBuilder.Build(
+            new WaferSpec { Cols = 2, Rows = 1, PitchX = 100, PitchY = 100, OriginX = -30, OriginY = -20 });
+
+        WaferDefectList list = new()
+        {
+            Items =
+            [
+                new WaferDefect
+                {
+                    DieCol = 0, DieRow = 0, Zone = WaferZone.E1, Defect = D(1, 10, 10), ReadOffset = new PointF(30, 20),
+                },
+            ],
+        };
+
+        WaferDefect moved = Assert.Single(AbsoluteTransform.Transform(list, grid, Align()).Items);
+
+        Assert.Equal(10, moved.AbsX!.Value, 6);
+        Assert.Equal(10, moved.AbsY!.Value, 6);
+    }
+
+    /// <summary>
+    /// ★★ 러너부터 끝까지 — 격자를 사진 왼쪽·위 밖에서 시작하면(원판을 끝까지 덮으려고) 첫 칸이 잘린다.
+    ///   원형 실데이터에서 결함 하나가 원판 밖 천 픽셀 넘게 찍혔던 그 모양이다.
+    /// </summary>
+    [Fact]
+    public void 잘린_첫_칸의_결함도_사진_속_자리에_찍힌다()
+    {
+        DieGrid grid = DieGridBuilder.Build(
+            new WaferSpec { Cols = 2, Rows = 1, PitchX = 100, PitchY = 100, OriginX = -30, OriginY = -20 });
+
+        WaferRunResult run = WaferRunner.Run(
+            grid,
+            (roi, _) => roi.X == 0 ? List(D(1, 10, 10)) : DefectList.Empty,    // 잘린 첫 칸에서 die 안 (10,10)
+            null,
+            new WaferRunOptions { Strategy = NeighborStrategy.SameRow1, ImageWidth = 500, ImageHeight = 500 });
+
+        Assert.Equal(new Roi(0, 0, 70, 80), run.Dies[0].Roi);
+
+        WaferDefect found = Assert.Single(
+            AbsoluteTransform.Transform(DefectCollector.Collect(run.Dies), grid, Align()).Items);
+
+        Assert.Equal((10.0, 10.0), (found.AbsX!.Value, found.AbsY!.Value));
+    }
 }

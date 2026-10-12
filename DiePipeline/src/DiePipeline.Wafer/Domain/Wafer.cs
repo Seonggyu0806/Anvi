@@ -9,6 +9,7 @@ namespace DiePipeline.Wafer.Domain;
 /// <code>
 ///   E1 = 이웃이 사방에 있다   → die-to-die 가능
 ///   E0 = 변두리. 이웃이 없거나 잘려 있다 → 골든을 못 만든다 → 단일 임계 검사
+///   Outside = 원판 밖 — die 가 아니다(원을 줬을 때만 생긴다)
 /// </code>
 ///
 /// ★ <b>교수님은 <c>E1, E0</c> 둘뿐인데 우리는 <c>Unknown = 0</c> 을 하나 더 뒀다.</b>
@@ -27,6 +28,14 @@ public enum WaferZone
 
     /// <summary>변두리 die — 골든을 만들 수 없다.</summary>
     E0 = 2,
+
+    /// <summary>
+    /// 원판 밖 — <b>die 가 아니다.</b> 원(<c>WaferSpec.Circle</c>)을 줬을 때만 생긴다.
+    ///
+    /// ★ 교수님 결과 계약은 E1 / E0 둘뿐이다. 이 칸은 E0 도 E1 도 아니고 die 개수에도 안 들어간다.
+    ///   격자가 사각형이라 자리만 차지할 뿐이다 — 맵에서 빈칸이다.
+    /// </summary>
+    Outside = 3,
 }
 
 /// <summary>
@@ -177,6 +186,16 @@ public sealed record WaferDefect
     public required Defect Defect { get; init; }
 
     /// <summary>
+    /// <see cref="Defect"/> 의 좌표를 잰 자리가 die 원점에서 얼마나 떨어져 있나 — <b>잘라 읽은 ROI 왼쪽 위 − die 원점</b>.
+    ///
+    /// ★ die 안 좌표는 <b>실제로 잘라 읽은 자리</b> 기준이다(교수님 결과 계약: "die 상대 — die ROI 원점 기준").
+    ///   보통은 반올림 차이(0.5px 안쪽)뿐이다. 그러나 die 가 사진 <b>왼쪽·위</b> 밖에 걸쳐 잘리면
+    ///   잘려 나간 만큼 벌어진다 — 이걸 안 더하면 결함의 절대 좌표가 그만큼 밀린다.
+    /// ★ 좌표 자체를 고치지 않고 따로 적는다. 원본(<see cref="Defect"/>)은 die 레시피가 낸 그대로 둔다.
+    /// </summary>
+    public PointF ReadOffset { get; init; }
+
+    /// <summary>
     /// 웨이퍼 절대 X. <b>변환 전에는 null 이다.</b>
     ///
     /// ★ <c>double?</c> 인 것이 설계다 — "아직 변환 안 됐다"가 <b>타입에 드러난다.</b>
@@ -201,11 +220,40 @@ public sealed record WaferDefectList
     public IEnumerable<WaferDefect> E0 => Items.Where(d => d.Zone == WaferZone.E0);
 }
 
+/// <summary>웨이퍼 맵 한 칸의 상태. ★ 셋이 <b>다 달라야</b> 한다 — 특히 깨끗함과 실패.</summary>
+public enum DieState
+{
+    Unknown = 0,
+
+    /// <summary>검사했고 결함이 없다.</summary>
+    Clean = 1,
+
+    /// <summary>검사했고 결함이 있다.</summary>
+    Defective = 2,
+
+    /// <summary>
+    /// 검사를 <b>못 했다.</b> 결함 수는 0 이지만 깨끗하다는 뜻이 아니다 —
+    /// 이 프로젝트에서 제일 위험한 상태다. 맵에서 깨끗함과 같은 색이면 안 된다.
+    /// </summary>
+    Failed = 3,
+
+    /// <summary>
+    /// 원판 밖 — <b>die 가 아니다.</b> 검사 대상이 아니라서 안 본 것이다.
+    /// ★ <see cref="Failed"/> 와 다르다 — 못 본 게 아니라 볼 것이 없다. 맵에서 빈칸이다.
+    /// </summary>
+    OffWafer = 4,
+}
+
 /// <summary>
-/// die 하나의 검사 요약.
+/// die 하나의 검사 요약 — 웨이퍼 맵 한 칸.
 ///
 /// ★ 결함이 0개인 die 도 반드시 기록한다.
 ///   <b>"검사했는데 깨끗했다"와 "검사를 안 했다"는 다르다.</b>
+///
+/// ★★ 그 구분을 <see cref="State"/>가 한다. 5주차에 화면을 붙이려다 발견했다 —
+///   이 칸이 없던 동안 <b>터진 die 의 요약은 깨끗한 die 와 똑같았다</b>(<c>DefectCount 0</c>).
+///   위 주석은 구분을 약속했는데 타입이 그걸 담을 자리가 없었던 것이다.
+///   명령행 맵은 <c>DieInspection.Failed</c>를 직접 봐서 맞았고, 요약만 믿었으면 화면이 틀렸을 것이다.
 /// </summary>
 public sealed record DieResult
 {
@@ -215,5 +263,11 @@ public sealed record DieResult
 
     public required WaferZone Zone { get; init; }
 
+    /// <summary>★ 실패한 die 도 0 이다 — 이것만 보고 깨끗하다고 읽으면 안 된다. <see cref="State"/>를 볼 것.</summary>
     public required int DefectCount { get; init; }
+
+    public required DieState State { get; init; }
+
+    /// <summary>검사를 못 한 까닭. 정상이면 <c>null</c>.</summary>
+    public string? Failure { get; init; }
 }

@@ -7,7 +7,7 @@ namespace DiePipeline.Wafer.Execution;
 /// die 안 좌표 → 웨이퍼 절대 좌표. <b>좌표 변환의 단 하나뿐인 자리</b>다.
 ///
 /// <code>
-///   abs = dieOrigin + s·R(θ)·centroid
+///   abs = dieOrigin + s·R(θ)·(centroid + ReadOffset)      ReadOffset = 잘라 읽은 자리 − dieOrigin
 /// </code>
 ///
 /// <para>★ 왜 오프셋에도 회전·확대를 거는가 — <b>die 를 펴서 읽기 때문이다.</b>
@@ -84,7 +84,15 @@ public static class AbsoluteTransform
             SimilarityTransform transform =
                 new(alignment.RotationDeg, alignment.Scale, origin.X, origin.Y);
 
-            PointF abs = transform.Apply(defect.Defect.Centroid);
+            // ★ die 안 좌표는 '잘라 읽은 자리' 기준이다(교수님 결과 계약: die 상대 = die ROI 원점 기준).
+            //   그 자리가 die 원점에서 떨어진 만큼(ReadOffset)을 더해 die 원점 기준으로 옮긴 뒤 변환한다.
+            //   4주차엔 "격자가 사진 안에 들어가 안 걸린다" 며 기록만 해 뒀다. 원형 실데이터에서 격자를
+            //   사진 왼쪽·위 밖에서 시작하자 걸렸다 — 잘린 첫 칸의 결함이 원판 밖 천 픽셀 넘게 찍혔다.
+            PointF local = new(
+                defect.Defect.Centroid.X + defect.ReadOffset.X,
+                defect.Defect.Centroid.Y + defect.ReadOffset.Y);
+
+            PointF abs = transform.Apply(local);
 
             items.Add(defect with { AbsX = abs.X, AbsY = abs.Y });
         }

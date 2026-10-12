@@ -22,6 +22,9 @@ public sealed record DieInspection
 
     public bool Failed => Failure is not null;
 
+    /// <summary>원판 밖 칸 — die 가 아니다. 맵을 그리려고 자리만 있다.</summary>
+    public bool OffWafer => Die.Zone == WaferZone.Outside;
+
     /// <summary>웨이퍼 맵에 찍을 한 줄 요약.</summary>
     public DieResult Summary => new()
     {
@@ -29,6 +32,13 @@ public sealed record DieInspection
         Row = Die.Row,
         Zone = Die.Zone,
         DefectCount = Defects.Count,
+
+        // ★ 실패를 먼저 본다. 터진 die 는 결함 목록이 비어 있어서 숫자만 보면 깨끗해 보인다.
+        State = Failed ? DieState.Failed
+            : OffWafer ? DieState.OffWafer
+            : Defects.Count > 0 ? DieState.Defective
+            : DieState.Clean,
+        Failure = Failure,
     };
 
     public override string ToString()
@@ -41,7 +51,12 @@ public sealed record WaferRunResult
 {
     public required IReadOnlyList<DieInspection> Dies { get; init; }
 
-    public int DieCount => Dies.Count;
+    /// <summary>
+    /// die 수 — <b>원판 밖 칸은 안 센다.</b>
+    /// ★ <see cref="Dies"/> 에는 격자 칸이 전부 있다(맵이 row-major 자리로 꺼내 쓴다). 그러나 원판 밖은 die 가 아니다.
+    ///   교수님 결과 계약도 dieCount 는 E1 + E0 다.
+    /// </summary>
+    public int DieCount => Dies.Count(d => !d.OffWafer);
 
     public int DefectCount => Dies.Sum(d => d.Defects.Count);
 
@@ -132,6 +147,13 @@ public static class WaferRunner
         // ── 여기까지는 우리 계산이다. 틀리면 설정이 잘못된 것이므로 멈춘다(fail-loud).
         Roi roi = ClampToImage(grid.RoiOf(die), options.ImageWidth, options.ImageHeight);
 
+        // ★ 원판 밖 — die 가 아니라서 검사하지 않는다. 실패가 아니다(볼 것이 없다).
+        //   이미지 밖에 있어도 실패로 적지 않도록 아래 검사보다 먼저 본다.
+        if (die.Zone == WaferZone.Outside)
+        {
+            return new DieInspection { Die = die, Roi = roi, Defects = DefectList.Empty, GoldenCount = 0 };
+        }
+
         if (roi.Width < 1 || roi.Height < 1)
         {
             // 격자나 정렬이 크게 틀어졌다는 뜻이다. 그 die 만 기록하고 넘어간다.
@@ -177,7 +199,7 @@ public static class WaferRunner
             //   조용히 건너뛰면 "결함 0개"로 보이지만 사실은 안 본 것이다.
             throw new InvalidOperationException(
                 $"die(c{die.Col},r{die.Row})는 {die.Zone} 인데 E0 검사 함수가 없습니다 — "
-                + "골든 없는 레시피(die.dark)를 같이 넘기세요");
+                + "골든 없는 레시피(die.dark · 원판이면 원판 밖을 가리는 die.dark.masked)를 같이 넘기세요");
         }
 
         // ── 여기서부터는 바깥에서 받은 함수다. 터져도 웨이퍼 전체를 죽이지 않는다.

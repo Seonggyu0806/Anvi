@@ -46,7 +46,7 @@ public static class CombineStrategies
 
         // ★ 왜 Mat.At<float>(y, x) 루프를 안 쓰나:
         //   OpenCvSharp의 At은 부를 때마다 네이티브 호출(P/Invoke)이 일어난다.
-        //   2500×2500 × 3장이면 1,800만 번이라 분 단위로 느려진다.
+        //   die 한 변이 수천 px 면 3장만 합쳐도 수천만 번이라 분 단위로 느려진다.
         //   한 번에 배열로 꺼내 두면 그다음은 순수 C# 배열 접근이라 비교가 안 되게 빠르다.
         float[][] planes = new float[count][];
 

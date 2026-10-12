@@ -50,22 +50,32 @@ public static class GoldenContract
             return new Requirement(0, "골든을 합치는 단계가 없습니다 — 골든이 필요 없는 레시피입니다");
         }
 
+        // ★ 부호를 <b>한 번만</b> 본다. 4주차엔 Mean 갈래에서만 봤다 — 그래서 Median 이 빠졌다.
+        //   장수는 이웃의 결함을 묽히거나 다수결로 이기는 것이지 <b>막는 게 아니다.</b>
+        //   5주차 화면에서 실제로 봤다: Median 3장인데 이웃 둘의 결함이 겹치자 중앙값이 넘어가
+        //   가운데 die 에 겹친 넓이(728)만큼 결함이 생겼다. 부호(DarkOnly)로 바꾸자 사라졌다.
+        //   ★ diffPolicy 를 안 적으면 Absolute 다(노드 기본값) — 안 적은 것도 '안 막는다' 로 본다.
+        bool signed = policy is not null && (Same(policy, "DarkOnly") || Same(policy, "BrightOnly"));
+        string? mirror = signed ? null : Mirror(strategy);
+
         if (Same(strategy, "Median"))
         {
             return new Requirement(3,
                 "Median 은 3장부터 중앙값이 됩니다 — 2장이면 평균과 같아져 "
-                + "이웃의 결함이 골든에 섞이고, 그게 내 die 에 되비칩니다(미러)");
+                + "이웃의 결함이 골든에 섞이고, 그게 내 die 에 되비칩니다(미러)",
+                mirror);
         }
 
         if (Same(strategy, "Percentile") || Same(strategy, "Min") || Same(strategy, "Max"))
         {
             return new Requirement(2,
-                $"{strategy} 는 여러 장 중에서 고르는 방식입니다 — 한 장이면 고를 것이 없습니다");
+                $"{strategy} 는 여러 장 중에서 고르는 방식입니다 — 한 장이면 고를 것이 없습니다",
+                mirror);
         }
 
         if (Same(strategy, "Mean"))
         {
-            if (policy is not null && (Same(policy, "DarkOnly") || Same(policy, "BrightOnly")))
+            if (signed)
             {
                 return new Requirement(1,
                     $"Mean 이지만 차이의 부호({policy})가 미러를 막으므로 장수는 안 따집니다");
@@ -75,15 +85,29 @@ public static class GoldenContract
             //   3주차 측정에서 3장 Mean 의 미러가 0으로 나왔지만, 그건 막아서가 아니라
             //   평균에 묽어져 임계를 못 넘은 것이다. 심는 세기를 올리자 드러났다.
             //   희석을 차단이라고 부르면 언젠가 세기가 센 결함에서 터진다.
-            return new Requirement(1,
-                "Mean 은 장수와 무관하게 골든이 한 장은 있어야 합니다",
-                "미러를 막는 것이 없습니다 — Mean 으로 합치는데 차이를 부호 없이(Absolute) 봅니다. "
-                + "이웃의 결함이 내 die 에 되비칠 수 있습니다. "
-                + "골든을 늘리면 평균에 묽어져 대개 임계를 못 넘지만, 그건 차단이 아니라 희석입니다. "
-                + "DarkOnly 를 쓰거나 Median 으로 합치세요");
+            return new Requirement(1, "Mean 은 장수와 무관하게 골든이 한 장은 있어야 합니다", mirror);
         }
 
-        return new Requirement(1, $"모르는 합치기 방식({strategy})입니다 — 최소 한 장으로만 봅니다");
+        return new Requirement(1, $"모르는 합치기 방식({strategy})입니다 — 최소 한 장으로만 봅니다", mirror);
+    }
+
+    /// <summary>
+    /// 부호 없이 볼 때의 경고. <b>합치는 법마다 장수로 못 막는 까닭이 다르다</b> — 그걸 같이 적는다.
+    ///
+    /// ★ 4주차 문구는 Mean 에게 "Median 으로 합치세요" 를 권했다. Median 도 겹치면 넘어가므로
+    ///   그 조언은 틀렸다. 막는 건 부호뿐이라 권하는 것도 부호 하나다.
+    /// </summary>
+    private static string Mirror(string strategy)
+    {
+        string why = Same(strategy, "Median")
+            ? "Median 은 이웃 중 하나만 결함일 때까지 막습니다 — 이웃 둘의 결함이 같은 자리에서 겹치면 "
+              + "중앙값이 그쪽으로 넘어가고, 겹친 넓이만큼 내 die 에 결함이 생깁니다"
+            : Same(strategy, "Mean")
+                ? "골든을 늘리면 평균에 묽어져 대개 임계를 못 넘지만, 그건 차단이 아니라 희석입니다"
+                : $"{strategy} 로 고른 값에 이웃의 결함이 섞일 수 있습니다";
+
+        return $"미러를 막는 것이 없습니다 — 차이를 부호 없이(Absolute) 봅니다. {why}. "
+               + "장수가 아니라 부호가 막습니다 — 결함이 어두우면 DarkOnly 를 쓰세요";
     }
 
     private static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);

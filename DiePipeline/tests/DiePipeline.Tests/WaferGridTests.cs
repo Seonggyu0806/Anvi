@@ -210,4 +210,202 @@ public sealed class WaferGridTests
         Assert.Single(list.E0);
         Assert.Empty(WaferDefectList.Empty.Items);
     }
+
+    // ─────────────────────────────── 원판 — 원 기준 존
+
+    /// <summary>5×5 · 피치 100 · 원 중심 (250,250) 반지름 200.</summary>
+    private static WaferSpec Round() => new()
+    {
+        Cols = 5,
+        Rows = 5,
+        PitchX = 100,
+        PitchY = 100,
+        Circle = new WaferCircle(250, 250, 200),
+    };
+
+    /// <summary>격자를 글자 지도로 — <c>#</c> 온전(E1) · <c>e</c> 걸침(E0) · <c>.</c> 원판 밖.</summary>
+    private static string Map(DieGrid grid)
+        => string.Join("\n", Enumerable.Range(0, grid.Rows).Select(row => string.Join(" ",
+            Enumerable.Range(0, grid.Cols).Select(col => grid.At(col, row).Zone switch
+            {
+                WaferZone.E1 => "#",
+                WaferZone.E0 => "e",
+                WaferZone.Outside => ".",
+                _ => "?",
+            }))));
+
+    /// <summary>
+    /// ★ 교수님 정의 — "E0 = 원판 밖과 겹치는 die만". 온전히 들어가면 E1, 걸치면 E0, 안 닿으면 die 가 아니다.
+    ///   사각형 테두리(edgeRings)로는 이 계단 모양이 안 나온다.
+    /// </summary>
+    [Fact]
+    public void 원을_주면_온전_걸침_밖으로_나눈다()
+    {
+        string expected = string.Join("\n",
+            ". e e e .",
+            "e e # e e",
+            "e # # # e",
+            "e e # e e",
+            ". e e e .");
+
+        Assert.Equal(expected, Map(DieGridBuilder.Build(Round())));
+    }
+
+    /// <summary>
+    /// ★ 귀퉁이가 하나도 안 들어가도 걸칠 수 있다 — 원의 끝이 die 변 가운데로 파고드는 경우.
+    ///   귀퉁이만 보면 '원판 밖' 으로 잘못 버려진다.
+    /// </summary>
+    [Fact]
+    public void 원이_변_가운데만_파고들어도_걸침이다()
+    {
+        DieGrid grid = DieGridBuilder.Build(new WaferSpec
+        {
+            Cols = 3,
+            Rows = 1,
+            PitchX = 100,
+            PitchY = 100,
+            Circle = new WaferCircle(150, -40, 60),     // die(1,0) 윗변 가운데로 20px 파고든다 · 귀퉁이는 64px
+        });
+
+        Assert.Equal(WaferZone.Outside, grid.At(0, 0).Zone);
+        Assert.Equal(WaferZone.E0, grid.At(1, 0).Zone);
+        Assert.Equal(WaferZone.Outside, grid.At(2, 0).Zone);
+    }
+
+    /// <summary>
+    /// ★ 원은 <b>사진 좌표</b>다. 정렬로 격자가 밀리면 판정도 밀린 자리로 한다 —
+    ///   설계 좌표로 판정하면 웨이퍼가 밀린 만큼 엉뚱한 칸이 E0 가 된다.
+    /// </summary>
+    [Fact]
+    public void 원판_판정은_정렬된_실제_자리로_한다()
+    {
+        WaferSpec spec = new()
+        {
+            Cols = 1, Rows = 1, PitchX = 100, PitchY = 100, Circle = new WaferCircle(1050, 1050, 80),
+        };
+
+        Assert.Equal(WaferZone.E1, DieGridBuilder.Build(spec, Placed(1000, 1000)).At(0, 0).Zone);
+        Assert.Equal(WaferZone.Outside, DieGridBuilder.Build(spec).At(0, 0).Zone);
+    }
+
+    /// <summary>돌아간 격자에서도 '변만 걸친' 칸을 찾는다 — 원 중심을 die 자기 좌표로 되돌려 잰다.</summary>
+    [Fact]
+    public void 돌아간_격자에서도_변만_걸친_칸을_찾는다()
+    {
+        WaferSpec spec = new()
+        {
+            Cols = 1, Rows = 1, PitchX = 100, PitchY = 100, Circle = new WaferCircle(-50, -40, 60),
+        };
+
+        // 90° — die 가 x -100~0 · y 0~100 자리로 돈다. 원은 그 윗변 가운데로 파고든다(귀퉁이는 64px 밖)
+        Assert.Equal(WaferZone.E0, DieGridBuilder.Build(spec, Placed(0, 0, angle: 90)).At(0, 0).Zone);
+    }
+
+    [Fact]
+    public void 원과_edgeRings_는_같이_못_쓴다()
+    {
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => DieGridBuilder.Build(Round() with { EdgeRings = 1 }));
+
+        Assert.Contains("같이 못", error.Message);
+    }
+
+    /// <summary>
+    /// ★ 가장자리 여유는 '검사에 쓰는 원' 만 줄인다 — 잰 원은 그대로다.
+    ///   die(2,1) 은 반지름 200 이면 온전(E1)인데, 여유 50(검사 반지름 150)이면 걸침(E0)이 된다.
+    /// </summary>
+    [Fact]
+    public void 가장자리_여유만큼_줄인_원으로_칸을_나눈다()
+    {
+        WaferSpec spec = Round() with { EdgeExclusion = 50 };
+
+        Assert.Equal(WaferZone.E1, DieGridBuilder.Build(Round()).At(2, 1).Zone);
+        Assert.Equal(WaferZone.E0, DieGridBuilder.Build(spec).At(2, 1).Zone);
+        Assert.Equal(200, spec.Circle!.Radius);              // 잰 원은 그대로
+        Assert.Equal(150, spec.InspectedCircle!.Radius);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(200)]
+    [InlineData(double.NaN)]
+    public void 가장자리_여유는_0_이상_반지름_미만이다(double exclusion)
+        => Assert.Throws<ArgumentOutOfRangeException>(
+            () => DieGridBuilder.Build(Round() with { EdgeExclusion = exclusion }));
+
+    /// <summary>원판 없이 여유만 주면 거부한다 — 조용히 무시하면 "여유를 줬는데 왜 그대로지" 가 된다.</summary>
+    [Fact]
+    public void 원판_없이_가장자리_여유만_주면_거부한다()
+    {
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => DieGridBuilder.Build(Spec() with { EdgeExclusion = 10 }));
+
+        Assert.Contains("원판", error.Message);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public void 반지름이_0_이하면_거부한다(double radius)
+        => Assert.Throws<ArgumentOutOfRangeException>(
+            () => DieGridBuilder.Build(Round() with { Circle = new WaferCircle(250, 250, radius) }));
+
+    // ─────────────────────────────── 수동 오버라이드 목록
+
+    /// <summary>
+    /// ★ 자동 판정 뒤에, 적힌 die 만 덮어쓴다 — 교수님 Phase8 §10 "'자동' 판정만 믿지 말 것(노치·플랫 존재)".
+    ///   가운데 온전한 칸을 제외, 걸친 칸을 E1, 원판 밖 칸을 E0 로. 나머지는 그대로.
+    /// </summary>
+    [Fact]
+    public void 수동_지정은_자동_판정을_덮어쓴다()
+    {
+        WaferSpec spec = Round() with
+        {
+            ZoneOverrides =
+            [
+                new ZoneOverride(2, 2, WaferZone.Outside),
+                new ZoneOverride(1, 0, WaferZone.E1),
+                new ZoneOverride(0, 0, WaferZone.E0),
+            ],
+        };
+
+        string expected = string.Join("\n",
+            "e # e e .",
+            "e e # e e",
+            "e # . # e",
+            "e e # e e",
+            ". e e e .");
+
+        Assert.Equal(expected, Map(DieGridBuilder.Build(spec)));
+    }
+
+    /// <summary>원판 없이도 쓴다 — 사각형 격자에서 한 칸만 E0 로.</summary>
+    [Fact]
+    public void 원판이_없어도_수동_지정이_된다()
+    {
+        DieGrid grid = DieGridBuilder.Build(Spec() with { ZoneOverrides = [new ZoneOverride(1, 1, WaferZone.E0)] });
+
+        Assert.Equal(WaferZone.E0, grid.At(1, 1).Zone);
+        Assert.Equal(grid.Count - 1, grid.Dies.Count(d => d.Zone == WaferZone.E1));
+    }
+
+    [Theory]
+    [InlineData(5, 0)]
+    [InlineData(0, -1)]
+    public void 격자_밖_die_를_지정하면_거부한다(int col, int row)
+        => Assert.Throws<ArgumentOutOfRangeException>(() => DieGridBuilder.Build(
+            Round() with { ZoneOverrides = [new ZoneOverride(col, row, WaferZone.E0)] }));
+
+    [Fact]
+    public void 정하지_않은_존으로_지정하면_거부한다()
+        => Assert.Throws<ArgumentException>(() => DieGridBuilder.Build(
+            Round() with { ZoneOverrides = [new ZoneOverride(1, 1, WaferZone.Unknown)] }));
+
+    /// <summary>같은 die 를 두 번 적으면 어느 쪽이 이겼는지 모른다.</summary>
+    [Fact]
+    public void 같은_die_를_두_번_지정하면_거부한다()
+        => Assert.Throws<ArgumentException>(() => DieGridBuilder.Build(Round() with
+        {
+            ZoneOverrides = [new ZoneOverride(1, 1, WaferZone.E0), new ZoneOverride(1, 1, WaferZone.Outside)],
+        }));
 }

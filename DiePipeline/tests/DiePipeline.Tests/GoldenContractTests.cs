@@ -95,6 +95,29 @@ public sealed class GoldenContractTests
     public void 차이_단계가_없는_Mean_도_경고한다()
         => Assert.NotNull(GoldenContract.Of(Recipe("Mean")).Warning);
 
+    /// <summary>
+    /// ★★ 5주차 화면에서 본 것. Median 3장인데 이웃 둘의 결함이 겹치자 중앙값이 넘어갔다.
+    ///   4주차엔 부호를 Mean 갈래에서만 봐서 Median 에는 경고가 없었다.
+    /// </summary>
+    [Fact]
+    public void Median_에_Absolute_면_경고한다()
+    {
+        GoldenContract.Requirement need = GoldenContract.Of(Recipe("Median", "Absolute"));
+
+        Assert.Equal(3, need.Minimum);
+        Assert.NotNull(need.Warning);
+        Assert.Contains("겹치면", need.Warning);
+    }
+
+    [Fact]
+    public void Median_에_DarkOnly_면_경고가_없다()
+        => Assert.Null(GoldenContract.Of(Recipe("Median", "DarkOnly")).Warning);
+
+    /// <summary>★ 4주차 문구는 Mean 에게 "Median 으로 합치세요" 를 권했다. Median 도 넘어가므로 틀린 조언이다.</summary>
+    [Fact]
+    public void Mean_경고가_Median_을_권하지_않는다()
+        => Assert.DoesNotContain("Median 으로", GoldenContract.Of(Recipe("Mean", "Absolute")).Warning);
+
     [Fact]
     public void Percentile_은_두_장이_필요하다()
         => Assert.Equal(2, GoldenContract.Of(Recipe("Percentile")).Minimum);

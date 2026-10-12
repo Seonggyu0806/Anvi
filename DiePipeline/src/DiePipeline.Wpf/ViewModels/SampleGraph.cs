@@ -9,7 +9,7 @@ namespace DiePipeline.Wpf.ViewModels;
 ///
 /// ★★ <b>이 값들은 데모용이다. 실데이터에 쓰면 안 된다.</b>
 ///   미리보기용 합성 이미지(작고 깨끗함)에 맞춰져 있다. 실데이터는
-///   <c>samples/recipes/die.diff.v2.json</c> 을 <b>불러오기</b>로 열어야 한다
+///   <c>samples/recipes/die.diff.json</c>(recipeId 는 die.diff.v2) 을 <b>불러오기</b>로 열어야 한다
 ///   (Combine=Mean · DarkOnly · MinMax · 임계 0.2 · minArea 500, 실데이터 32 die로 확정).
 ///
 ///   3주차에 반대 방향으로 한 번 데였다 — 데모용 레시피를 실데이터에 썼다가

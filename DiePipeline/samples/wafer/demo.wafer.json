@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "1.0",
+  "recipeId": "demo.wafer",
+  "description": "합성 견본 — diepipe demo -o demo.bmp 로 그린 사진(기본값: 격자 4×3 · 피치 100 · 반듯함)에 돌린다. 블록 다섯: 표식 찾기 → 자세 계산 → die 전부 검사(경계) → 웨이퍼 좌표 → 결과 추리기. 안의 경로는 이 파일 기준. 기대 결과: die(0,0) 자리 (54,54) · 각도 0 · die 12개 · 결함 3개 — die(c1,r0) · die(c0,r2) · die(c2,r2).",
+  "contextInputs": [ "alignSrc", "alignTemplate" ],
+  "pipeline": {
+    "nodes": [
+      {
+        "id": "match",
+        "type": "TemplateMatchAll",
+        "inputs": { "src": "alignSrc", "template": "alignTemplate" },
+        "outputs": { "matches": "matches" },
+        "params": { "method": "CCoeffNormed", "minScore": 0.8, "maxMatches": 4 }
+      },
+      {
+        "id": "solve",
+        "type": "SolveAlignment",
+        "inputs": { "matches": "matches" },
+        "outputs": { "alignment": "alignment" },
+        "params": {
+          "expected": [ [ -40, -40 ], [ 410, 310 ] ],
+          "firstDieX": 0, "firstDieY": 0,
+          "minScore": 0.8, "maxAngleDeg": 2.0
+        }
+      },
+      {
+        "id": "inspect",
+        "type": "InspectDies",
+        "inputs": { "alignment": "alignment" },
+        "outputs": { "defects": "waferDefects", "grid": "grid", "alignment": "alignmentOut" },
+        "params": {
+          "e1Recipe": "../recipes/die.diff.json",
+          "cols": 4, "rows": 3,
+          "pitchX": 100, "pitchY": 100,
+          "features": [ { "template": "features/demo_mark.bmp" } ]
+        }
+      },
+      {
+        "id": "transform",
+        "type": "TransformAbs",
+        "inputs": { "defects": "waferDefects", "grid": "grid", "alignment": "alignmentOut" },
+        "outputs": { "result": "absDefects" }
+      },
+      {
+        "id": "sample",
+        "type": "Sampling",
+        "inputs": { "defects": "absDefects" },
+        "outputs": { "result": "finalDefects" },
+        "params": { "mode": "BigSize", "count": 200, "seed": 0 }
+      }
+    ]
+  }
+}

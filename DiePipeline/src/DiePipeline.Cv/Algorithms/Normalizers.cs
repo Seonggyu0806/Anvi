@@ -8,7 +8,7 @@ namespace DiePipeline.Cv.Algorithms;
 /// ★ 여기 있는 것은 전부 <b>평활(smoothing)</b>이다 — 뭉갤 뿐 값의 기준을 바꾸지 않는다.
 ///   CLAHE·ZScore처럼 값의 기준을 옮기는 변환은 <b>일부러 넣지 않았다</b>:
 ///   Normalize는 골든에만 걸리므로, 값의 기준이 바뀌면 검사 이미지와 서로 다른 세계가 되어
-///   다음 단계 Difference의 뺄셈이 의미를 잃는다. (docs/1-deferred.md §2)
+///   다음 단계 Difference의 뺄셈이 의미를 잃는다. (docs/deferred.md §2)
 /// </summary>
 public enum NormalizeMethod
 {

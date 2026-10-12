@@ -27,7 +27,7 @@ public readonly record struct ShiftEstimate(double X, double Y, double Response,
 ///   <b>모든 경계선이 통째로 결함으로 나온다</b> — 실제로 v1에서 오검 11개가 이렇게 나왔다.
 ///
 /// ★ 무엇을 안 하는가: 회전·확대는 다루지 않는다. 같은 웨이퍼 위 이웃 die끼리는
-///   돌아가지도 커지지도 않는다. 겪지 않은 문제를 먼저 풀지 않는다. (docs/1-deferred.md §3)
+///   돌아가지도 커지지도 않는다. 겪지 않은 문제를 먼저 풀지 않는다. (docs/deferred.md §3)
 /// </summary>
 public static class Aligners
 {

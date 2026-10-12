@@ -175,6 +175,99 @@ public sealed class DifferenceNodeFactory : INodeFactory
             });
 }
 
+/// <summary>
+/// 검사 영역 한정 — 교수님 Phase 4 의 <c>MaskApply</c>. 범주도 새로 생긴다("영역").
+///
+/// ★ <c>fill</c> 만 우리가 더했다. 기본 0 이라 안 주면 교수님 동작과 똑같다.
+/// </summary>
+public sealed class MaskApplyNodeFactory : INodeFactory
+{
+    public string TypeName => "MaskApply";
+
+    public INodeDescriptor Descriptor { get; } = new NodeDescriptor("MaskApply", "영역",
+        inputs:
+        [
+            new PortDescriptor("src", "가릴 이미지(GrayF32)"),
+            new PortDescriptor("mask", "볼 곳 — 0 이 아니면 켜짐(Gray8)"),
+        ],
+        outputs: [new PortDescriptor("result", "가린 이미지")],
+        @params:
+        [
+            new ParamDescriptor("invert", typeof(bool), Default: false,
+                Description: "true 면 반대로 — 마스크가 켜진 곳을 지우고 꺼진 곳만 남긴다"),
+            new ParamDescriptor("fill", typeof(double), Default: 0.0, Min: 0.0, Max: 1.0,
+                Description: "지운 곳을 채울 밝기. 0 = 교수님 동작. 어두운 결함을 찾는 레시피 앞이면 1.0"),
+        ]);
+
+    public IPipelineNode Create(NodeConfig config)
+        => new MaskApplyNode(
+            config.Id,
+            srcKey: Wire.In(config, "src"),
+            maskKey: Wire.In(config, "mask"),
+            outKey: Wire.Out(config, "result"),
+            options: new MaskApplyOptions
+            {
+                Invert = ParamValues.GetBool(config.Params, "invert", false),
+                Fill = ParamValues.GetDouble(config.Params, "fill", 0.0),
+            });
+}
+
+/// <summary>
+/// 표식 찾기 블록 설명 — 웨이퍼 레시피의 첫 블록(교수님 Phase 8 · 이름 · 파라미터 이름이 같다).
+///
+/// ★ <c>nmsRadiusPx</c> 기본은 0 = <b>조각 짧은 변의 절반</b>(자동)이다. 교수님 코드 기본값은 8 인데,
+///   교수님 문서(특징 탐색 §3)가 "템플릿 크기의 절반 이상 — 274px 템플릿이면 150~200" 이라고 적었다.
+///   8 이면 큰 조각에서 한 표식 둘레의 봉우리가 여러 개로 갈라져 짝짓기가 옆 봉우리를 집을 수 있다.
+/// ★ <c>subPixel</c> 은 우리 것 — 반 칸이 각도 오차가 된다(4주차 실측). 기본은 켠다.
+/// </summary>
+public sealed class TemplateMatchAllNodeFactory : INodeFactory
+{
+    public string TypeName => "TemplateMatchAll";
+
+    public INodeDescriptor Descriptor { get; } = new NodeDescriptor("TemplateMatchAll", "정렬",
+        inputs:
+        [
+            new PortDescriptor("src", "찾을 그림 — 실행기가 표식마다 잘라 준 창(GrayF32)"),
+            new PortDescriptor("template", "표식 조각(GrayF32)"),
+        ],
+        outputs: [new PortDescriptor("matches", "찾은 자리 목록 — 점수 높은 순", PortKind.MatchList)],
+        @params:
+        [
+            new ParamDescriptor("method", typeof(string), Default: "CCoeffNormed",
+                Choices: ["CCoeffNormed", "CCorrNormed", "SqDiffNormed"],
+                Description: "닮은 정도를 재는 법. CCoeffNormed 가 밝기 차이에 제일 둔하다"),
+            new ParamDescriptor("minScore", typeof(double), Default: 0.8, Min: -1.0, Max: 1.0,
+                Description: "이보다 안 닮았으면 못 찾은 것으로 친다(실측 — 진짜 0.93~1.00 · 무늬 오답 0.70 언저리)"),
+            new ParamDescriptor("maxMatches", typeof(int), Default: 32, Min: 1, Description: "몇 개까지 찾을까"),
+            new ParamDescriptor("nmsRadiusPx", typeof(int), Default: 0, Min: 0,
+                Description: "한 자리를 고른 뒤 눌러 둘 반경(px). 0 = 조각 짧은 변의 절반"),
+            new ParamDescriptor("subPixel", typeof(bool), Default: true,
+                Description: "소수점 자리까지 잡을까 — 두 점으로 각도를 풀 때 반 칸이 각도 오차가 된다"),
+        ]);
+
+    public IPipelineNode Create(NodeConfig config)
+        => new TemplateMatchAllNode(
+            config.Id,
+            srcKey: Wire.In(config, "src"),
+            templateKey: Wire.In(config, "template"),
+            outKey: Wire.Out(config, "matches"),
+            options: new MatchOptions
+            {
+                Method = ParamValues.GetString(config.Params, "method", "CCoeffNormed") switch
+                {
+                    "CCoeffNormed" => MatchMethod.CCoeffNormed,
+                    "CCorrNormed" => MatchMethod.CCorrNormed,
+                    "SqDiffNormed" => MatchMethod.SqDiffNormed,
+                    string other => throw new ArgumentException(
+                        $"node '{config.Id}'(TemplateMatchAll): 알 수 없는 method '{other}'"),
+                },
+                MinScore = ParamValues.GetDouble(config.Params, "minScore", 0.8),
+                MaxMatches = ParamValues.GetInt(config.Params, "maxMatches", 32),
+                SuppressRadius = ParamValues.GetInt(config.Params, "nmsRadiusPx", 0),
+                SubPixel = ParamValues.GetBool(config.Params, "subPixel", true),
+            });
+}
+
 public sealed class FilterNodeFactory : INodeFactory, ICustomParamsValidator
 {
     public string TypeName => "Filter";

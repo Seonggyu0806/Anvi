@@ -1,0 +1,32 @@
+{
+  "recipeId": "die.dark.masked",
+  "description": "E0(원판 가장자리에 걸친 die) 용 — die.dark 앞에 MaskApply 한 블록을 더했다. 웨이퍼 층이 넘겨주는 waferMask(이 die 에서 원판 안 = 255)로 원판 밖을 흰색(fill 1.0)으로 덮은 뒤, die.dark 와 똑같이 '이 정도로 새까만 건 정상일 리 없다'는 절대 임계로 잡는다. 왜 덮나: 원판 밖 배경은 E0 임계(0.15)보다 어두울 수 있어서, 가리지 않으면 걸친 칸의 원판 밖이 통째로 결함이 된다. 검정(fill 0, 교수님 기본)으로 덮으면 같은 이유로 덮은 곳이 결함이 된다. 원판을 안 주면 waferMask 가 전부 켜짐이라 die.dark 와 결과가 같다. 한계는 die.dark 그대로 — 밝은 결함은 못 잡는다. 교수님 die.dark.roimono + MaskApply(Phase 4 · 검사영역 한정).",
+
+  "contextInputs": [ "roi", "waferMask" ],
+
+  "pipeline": {
+    "nodes": [
+      {
+        "id": "cover",
+        "type": "MaskApply",
+        "inputs": { "src": "roi", "mask": "waferMask" },
+        "outputs": { "result": "covered" },
+        "params": { "invert": false, "fill": 1.0 }
+      },
+      {
+        "id": "binarize",
+        "type": "Binarize",
+        "inputs": { "src": "covered" },
+        "outputs": { "result": "mask" },
+        "params": { "method": "Range", "low": 0.0, "high": 0.15 }
+      },
+      {
+        "id": "label",
+        "type": "Label",
+        "inputs": { "mask": "mask", "intensity": "roi" },
+        "outputs": { "result": "defectList" },
+        "params": { "connectivity": 8, "minArea": 200 }
+      }
+    ]
+  }
+}

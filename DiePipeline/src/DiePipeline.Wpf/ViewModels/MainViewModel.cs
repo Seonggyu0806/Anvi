@@ -22,7 +22,10 @@ namespace DiePipeline.Wpf.ViewModels;
 /// </summary>
 public sealed class MainViewModel : ObservableObject
 {
-    private static readonly string[] ContextInputs = [ReservedContext.Roi, ReservedContext.ChipRegions];
+    // ★ waferMask — 원판에 걸친 die(E0) 레시피가 받는 원판 마스크. 없으면 die.dark.masked 를 열었을 때
+    //   MaskApply 로 가는 선이 이어질 블록이 없다. 안 쓰는 레시피는 선을 안 이으니 내보내기에 안 들어간다.
+    private static readonly string[] ContextInputs =
+        [ReservedContext.Roi, ReservedContext.ChipRegions, ReservedContext.WaferMask];
 
     // ★ x를 220부터 시작한다 — 왼쪽 열은 컨텍스트 입력 블록 자리다.
     //   40부터 깔면 컨텍스트 블록과 겹쳐서 둘 다 안 읽힌다.
@@ -48,9 +51,10 @@ public sealed class MainViewModel : ObservableObject
     public MainViewModel()
     {
         // ★ 팔레트를 손으로 안 적는다. 명부에서 그대로 펼친다.
+        //   웨이퍼 종류를 주고받는 블록(표식 찾기 등)은 die 레시피에 못 쓰니 숨긴다 — 이름이 아니라 포트 종류로.
         Palette =
         [
-            .. PaletteModel.From(_registry)
+            .. PaletteModel.Filtered(_registry, d => !PaletteModel.TouchesPortKind(d, PaletteModel.WaferKinds))
                 .SelectMany(c => c.Nodes.Select(d => new PaletteItemViewModel(c.Category, d.TypeName, AddNode)))
         ];
 
@@ -63,7 +67,14 @@ public sealed class MainViewModel : ObservableObject
         NewStandardCommand = new RelayCommand(() => LoadGraph(StandardGraph()));
 
         LoadGraph(StandardGraph());
+
+        // ★ 웨이퍼 탭은 die 탭의 '지금 그래프' 를 레시피로 쓴다 — 따로 들고 있으면 둘이 갈라진다.
+        //   내보내기와 같은 길(검증 강제)을 탄다 — 검증에 막히면 웨이퍼 검사도 안 돌아간다.
+        Wafer = new WaferViewModel(_registry, () => RecipeMapper.Export(_graph, _registry));
     }
+
+    /// <summary>웨이퍼 탭. die 탭의 그래프를 그대로 레시피로 쓴다.</summary>
+    public WaferViewModel Wafer { get; }
 
     public IReadOnlyList<PaletteItemViewModel> Palette { get; }
 
