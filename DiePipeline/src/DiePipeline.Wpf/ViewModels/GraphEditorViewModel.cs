@@ -147,7 +147,7 @@ public sealed partial class GraphEditorViewModel : ObservableObject
 
     public ICommand ImportCommand { get; }
 
-    /// <summary>선 하나 끊기 — 선을 더블클릭(또는 Alt+클릭)할 때 Nodify 가 그 선을 넘긴다.</summary>
+    /// <summary>선 하나 끊기 — 선을 더블클릭(또는 Alt+클릭)하면 편집기(RemoveConnectionCommand)가 그 선을 넘긴다.</summary>
     public ICommand DisconnectCommand { get; }
 
     public ICommand UndoCommand => _undo;

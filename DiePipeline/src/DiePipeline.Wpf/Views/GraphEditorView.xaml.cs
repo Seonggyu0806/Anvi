@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 using DiePipeline.Wpf.ViewModels;
+using Nodify;
 using Nodify.Interactivity;
 
 namespace DiePipeline.Wpf.Views;
@@ -20,20 +21,10 @@ public partial class GraphEditorView : UserControl
         nameof(SideContent), typeof(object), typeof(GraphEditorView), new PropertyMetadata(null));
 
     /// <summary>
-    /// ★ 선 끊기 = <b>선 더블클릭</b>(또는 Alt+클릭). Nodify 기본은 Alt+클릭뿐이고, 더블클릭은 '선 나누기' 에 걸려 있다 —
-    ///   우리는 선 나누기를 안 쓴다. 써 보니 더블클릭이 자연스러워 바꿨다(교수님 앱은 기본 그대로라 Alt+클릭뿐이다).
+    /// ★ Nodify 기본은 선 더블클릭 = '선 나누기' 다. 우리는 선 나누기를 안 쓰니 풀어 둔다 — 더블클릭은 끊기에 쓴다(<see cref="OnLineMouseDown"/>).
     /// ★ 손짓 설정은 앱 전체에 한 번 — 화면이 처음 만들어질 때.
     /// </summary>
-    static GraphEditorView()
-    {
-        EditorGestures.ConnectionGestures line = EditorGestures.Mappings.Connection;
-
-        line.Split.Unbind();
-        line.Disconnect.Value = new MultiGesture(
-            MultiGesture.Match.Any,
-            new Nodify.Interactivity.MouseGesture(MouseAction.LeftDoubleClick),
-            new Nodify.Interactivity.MouseGesture(MouseAction.LeftClick, ModifierKeys.Alt));
-    }
+    static GraphEditorView() => EditorGestures.Mappings.Connection.Split.Unbind();
 
     public GraphEditorView()
     {
@@ -59,6 +50,21 @@ public partial class GraphEditorView : UserControl
     {
         get => GetValue(SideContentProperty);
         set => SetValue(SideContentProperty, value);
+    }
+
+    /// <summary>
+    /// 선 더블클릭 → 끊기. Alt+클릭 끊기는 Nodify 기본 그대로다.
+    /// ★ Nodify 의 끊기 손짓은 마우스를 <b>뗄 때</b> 판정하는데, 실제 더블클릭은 뗄 때 '두 번째 클릭' 으로 안 잡혀서
+    ///   손짓에 더블클릭을 걸어도 안 끊겼다. 그래서 <b>누를 때</b> 클릭 횟수를 직접 본다.
+    ///   <c>Remove()</c> 는 Nodify 가 끊을 때 부르는 것과 같다 — 편집기의 RemoveConnectionCommand 로 간다.
+    /// </summary>
+    private void OnLineMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2 && sender is BaseConnection line)
+        {
+            line.Remove();
+            e.Handled = true;
+        }
     }
 
     /// <summary>

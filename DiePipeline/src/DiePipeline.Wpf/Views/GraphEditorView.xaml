@@ -155,7 +155,8 @@
                              Connections="{Binding Connections}"
                              PendingConnection="{Binding PendingConnection}"
                              SelectedItem="{Binding SelectedNode, Mode=TwoWay}"
-                             SelectedConnections="{Binding SelectedConnections}">
+                             SelectedConnections="{Binding SelectedConnections}"
+                             RemoveConnectionCommand="{Binding DisconnectCommand}">
             <nodify:NodifyEditor.ItemContainerStyle>
                 <Style TargetType="nodify:ItemContainer">
                     <!-- ★ 블록 위치 = 모델 좌표. 끌면 모델이 바뀐다 -->
@@ -208,11 +209,13 @@
 
             <nodify:NodifyEditor.ConnectionTemplate>
                 <DataTemplate>
-                    <!-- 곡선. 더블클릭(또는 Alt+클릭)하면 바로 끊긴다. 한 번 눌러 고른 뒤 Delete 로도 지운다 -->
+                    <!-- 곡선. 더블클릭(또는 Alt+클릭)하면 바로 끊긴다. 한 번 눌러 고른 뒤 Delete 로도 지운다.
+                         ★ 끊기는 편집기의 RemoveConnectionCommand 가 받는다 — 그쪽은 '선'을 넘겨 준다.
+                           선 자신의 DisconnectCommand 는 '누른 위치(Point)'를 넘겨서 우리 명령이 무시했다.
+                         ★ 더블클릭은 OnLineMouseDown 이 직접 본다(이유는 코드 쪽 설명) -->
                     <nodify:Connection Source="{Binding Source.Anchor}" Target="{Binding Target.Anchor}"
                                        Stroke="#8A98B0" StrokeThickness="2.4" Spacing="36" IsSelectable="True"
-                                       DisconnectCommand="{Binding DataContext.DisconnectCommand,
-                                           RelativeSource={RelativeSource AncestorType=nodify:NodifyEditor}}" />
+                                       PreviewMouseLeftButtonDown="OnLineMouseDown" />
                 </DataTemplate>
             </nodify:NodifyEditor.ConnectionTemplate>
 
