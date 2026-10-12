@@ -41,6 +41,16 @@ public sealed record GraphEditorSettings
     /// </summary>
     public Func<Recipe, string, string, Recipe>? RebasePaths { get; init; }
 
+    /// <summary>입구 블록을 눌렀을 때 속성 칸에 띄울 안내 — 입구 이름 → 한 줄. 없으면 아무것도 안 띄운다.</summary>
+    public IReadOnlyDictionary<string, string> ContextHints { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>
+    /// 입구 블록을 눌렀을 때 같이 보일 목록 값 — 입구 이름 → (블록 종류, 값 이름).
+    /// ★ 웨이퍼: <c>alignTemplate</c> 를 누르면 InspectDies 의 <c>features</c>(표식 조각)를 그 자리에서 고친다 — 그 입구로 들어가는 것이다.
+    /// </summary>
+    public IReadOnlyDictionary<string, (string NodeType, string Param)> ContextLists { get; init; } =
+        new Dictionary<string, (string NodeType, string Param)>();
+
     /// <summary>열기 · 내보내기 대화상자의 파일 종류.</summary>
     public string FileFilter { get; init; } = "레시피 JSON (*.json)|*.json";
 
@@ -64,6 +74,7 @@ public sealed partial class GraphEditorViewModel : ObservableObject
     public const double CanvasLeft = 240;
 
     private readonly GraphEditorSettings _settings;
+    private readonly FieldServices _services;
     private readonly GraphHistory _history = new();
     private readonly RelayCommand _undo;
     private readonly RelayCommand _redo;
@@ -80,6 +91,9 @@ public sealed partial class GraphEditorViewModel : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(settings);
         _settings = settings;
+
+        // 속성 칸의 찾아보기 — 기준 폴더는 지금 연 파일의 폴더, 파일 고르기는 대화상자(바꿔 끼울 수 있다).
+        _services = new FieldServices(() => Folder, () => PickFile());
 
         // ★ 팔레트를 손으로 안 적는다. 명부에서 그대로 펼친다. 카테고리로 묶고, 검색칸으로 거른다.
         PaletteItems =
@@ -178,8 +192,44 @@ public sealed partial class GraphEditorViewModel : ObservableObject
     public NodeViewModel? SelectedNode
     {
         get => _selectedNode;
-        set => SetField(ref _selectedNode, value);
+        set
+        {
+            if (SetField(ref _selectedNode, value))
+            {
+                OnPropertyChanged(nameof(SelectedHint));
+                OnPropertyChanged(nameof(SelectedLists));
+            }
+        }
     }
+
+    /// <summary>고른 입구 블록의 안내 한 줄(<see cref="GraphEditorSettings.ContextHints"/>). 아니면 <c>null</c>.</summary>
+    public string? SelectedHint
+        => SelectedNode is { IsContext: true, ContextKey: { } key } && _settings.ContextHints.TryGetValue(key, out string? hint)
+            ? hint
+            : null;
+
+    /// <summary>
+    /// 속성 칸에 그릴 목록 · 묶음 값. 블록이면 그 블록의 것, 입구 블록이면 그 입구로 들어가는 값(<see cref="GraphEditorSettings.ContextLists"/>).
+    /// ★ 입구에서 보이는 목록은 그 블록의 <b>같은 칸</b>이다 — 어느 쪽에서 고쳐도 한 값이 바뀐다.
+    /// </summary>
+    public IReadOnlyList<ListParamViewModel> SelectedLists
+        => SelectedNode switch
+        {
+            null => [],
+            { IsContext: true, ContextKey: { } key } when _settings.ContextLists.TryGetValue(key, out (string NodeType, string Param) target)
+                => [.. Nodes.Where(n => !n.IsContext && n.Type == target.NodeType)
+                        .SelectMany(n => n.Lists)
+                        .Where(l => l.Name == target.Param)
+                        .Take(1)],
+            { IsContext: true } => [],
+            { } node => node.Lists,
+        };
+
+    /// <summary>
+    /// 속성 칸 '찾아보기' 의 파일 고르기 — 고른 파일의 전체 경로, 안 고르면 <c>null</c>. 기본은 파일 대화상자.
+    /// ★ 화면 없이 검사할 때 바꿔 끼운다.
+    /// </summary>
+    public Func<string?> PickFile { get; set; } = PickWithDialog;
 
     public bool IsValid
     {
@@ -278,7 +328,7 @@ public sealed partial class GraphEditorViewModel : ObservableObject
 
         _graph.Nodes.Add(model);
 
-        NodeViewModel node = new(model, _settings.Registry.Describe(type), OnGraphChanged);
+        NodeViewModel node = new(model, _settings.Registry.Describe(type), OnGraphChanged, _services);
         Nodes.Add(node);
         SelectedNode = node;
 
@@ -353,7 +403,7 @@ public sealed partial class GraphEditorViewModel : ObservableObject
         _history.Push(_graph);
         EditorNode copy = GraphOps.Duplicate(_graph, SelectedNode.Id);
 
-        NodeViewModel node = new(copy, _settings.Registry.Describe(copy.Type), OnGraphChanged);
+        NodeViewModel node = new(copy, _settings.Registry.Describe(copy.Type), OnGraphChanged, _services);
         Nodes.Add(node);
         SelectedNode = node;
 
@@ -556,7 +606,7 @@ public sealed partial class GraphEditorViewModel : ObservableObject
 
         foreach (EditorNode model in graph.Nodes)
         {
-            Nodes.Add(new NodeViewModel(model, _settings.Registry.Describe(model.Type), OnGraphChanged));
+            Nodes.Add(new NodeViewModel(model, _settings.Registry.Describe(model.Type), OnGraphChanged, _services));
         }
 
         RebuildConnections();
@@ -626,6 +676,16 @@ public sealed partial class GraphEditorViewModel : ObservableObject
 
     private static string LayoutPath(string recipePath)
         => Path.ChangeExtension(recipePath, null) + ".layout.json";
+
+    private static string? PickWithDialog()
+    {
+        OpenFileDialog dialog = new()
+        {
+            Filter = "레시피 · 그림 (*.json;*.bmp;*.png;*.tif)|*.json;*.bmp;*.png;*.tif;*.tiff|모든 파일 (*.*)|*.*",
+        };
+
+        return dialog.ShowDialog() == true ? dialog.FileName : null;
+    }
 
     private static bool SameFolder(string a, string b)
         => string.Equals(

@@ -59,6 +59,17 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
             StarterGraph = () => new EditorGraph { RecipeId = "untitled.wafer" },
             RebasePaths = WaferRecipePaths.Rebase,
             FileFilter = "웨이퍼 레시피 (*.wafer.json)|*.wafer.json|레시피 JSON (*.json)|*.json",
+
+            // ★ 입구 블록은 레시피의 블록이 아니라 값이 없다 — 무엇이 들어오는지만 알려 준다(교수님 화면과 같다).
+            ContextHints = new Dictionary<string, string>
+            {
+                [ReservedContext.AlignSrc] = "웨이퍼 사진 — 아래 실행 칸에서 고릅니다(합성 견본 그리기 · 사진 열기). 실행기가 표식을 찾을 창마다 잘라 넣습니다.",
+                [ReservedContext.AlignTemplate] = "표식 조각 — InspectDies 블록의 '표식 조각' 에서 읽어 넣습니다. 아래에서 고치면 그 블록이 바뀝니다.",
+            },
+            ContextLists = new Dictionary<string, (string NodeType, string Param)>
+            {
+                [ReservedContext.AlignTemplate] = ("InspectDies", "features"),
+            },
         });
 
         // ★ 레시피를 고치면 결과가 낡는다 — 웨이퍼는 오래 걸릴 수 있어 저절로 다시 돌리지는 않고, 낡았다고만 알린다.

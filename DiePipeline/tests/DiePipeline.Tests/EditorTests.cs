@@ -175,6 +175,18 @@ public sealed class EditorTests
             PropertyFormModel.For(registry.Describe("Label")).Single(f => f.Name == "computeShape").Control);
     }
 
+    /// <summary>경로 표시(IsPath)가 있는 글자 값은 경로 칸 — 찾아보기가 붙는다. 표시가 없는 글자 값은 그대로다.</summary>
+    [Fact]
+    public void 경로_값은_경로_칸이다()
+    {
+        IReadOnlyList<PropertyField> fields =
+            PropertyFormModel.For(DiePipeline.Wafer.Processing.WaferBackend.CreateRegistry().Describe("InspectDies"));
+
+        Assert.Equal(FieldControl.Path, fields.Single(f => f.Name == "e1Recipe").Control);
+        Assert.Equal(FieldControl.Path, fields.Single(f => f.Name == "e0Recipe").Control);
+        Assert.Equal(FieldControl.Choice, fields.Single(f => f.Name == "neighbors").Control);
+    }
+
     // ───────────────────────── 슬라이더 ─────────────────────────
 
     private static PropertyField Field(string type, string name)

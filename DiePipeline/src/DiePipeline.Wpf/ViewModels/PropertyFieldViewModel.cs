@@ -1,9 +1,20 @@
 ﻿using System.Globalization;
 using System.Text.Json;
+using System.Windows.Input;
 using DiePipeline.Editor;
 using DiePipeline.Wpf.Mvvm;
 
 namespace DiePipeline.Wpf.ViewModels;
+
+/// <summary>
+/// 속성 칸이 편집기에 묻는 것 — 경로를 풀 기준 폴더와 파일 고르기(찾아보기).
+/// ★ 파일 고르기는 대화상자라, 화면 없이 검사할 때는 편집기에서 바꿔 끼운다.
+/// </summary>
+public sealed record FieldServices(Func<string?> Folder, Func<string?> PickFile)
+{
+    /// <summary>기준 폴더도 파일 고르기도 없음 — 찾아보기를 눌러도 아무 일 없다.</summary>
+    public static FieldServices None { get; } = new(() => null, () => null);
+}
 
 /// <summary>
 /// 속성폼의 칸 하나. <see cref="EditorNode.Params"/>(JsonElement)와 양방향으로 오간다.
@@ -19,15 +30,19 @@ public sealed class PropertyFieldViewModel : ObservableObject
     private readonly EditorNode _node;
     private readonly PropertyField _field;
     private readonly Action _onChanged;
+    private readonly FieldServices _services;
 
     private bool _boolValue;
     private string _stringValue = string.Empty;
 
-    public PropertyFieldViewModel(EditorNode node, PropertyField field, Action onChanged)
+    public PropertyFieldViewModel(EditorNode node, PropertyField field, Action onChanged, FieldServices? services = null)
     {
         _node = node;
         _field = field;
         _onChanged = onChanged;
+        _services = services ?? FieldServices.None;
+
+        BrowseCommand = new RelayCommand(Browse);
 
         LoadFromModel();
     }
@@ -39,6 +54,9 @@ public sealed class PropertyFieldViewModel : ObservableObject
     public FieldControl Control => _field.Control;
 
     public IReadOnlyList<string>? Choices => _field.Choices;
+
+    /// <summary>경로 칸의 '찾아보기' — 고른 파일을 레시피 폴더 기준 상대 경로로 적는다.</summary>
+    public ICommand BrowseCommand { get; }
 
     // ── 슬라이더용. 붙일지·몇 칸씩인지는 아래층(PropertyField)이 정한다 ──
 
@@ -96,6 +114,14 @@ public sealed class PropertyFieldViewModel : ObservableObject
                 WriteString(value);
                 _onChanged();
             }
+        }
+    }
+
+    private void Browse()
+    {
+        if (_services.PickFile() is { } file)
+        {
+            StringValue = EditorPaths.Relative(_services.Folder(), file);
         }
     }
 

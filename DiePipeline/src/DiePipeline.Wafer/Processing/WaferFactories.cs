@@ -156,9 +156,9 @@ public sealed class InspectDiesNodeFactory : INodeFactory, ICustomParamsValidato
         ],
         @params:
         [
-            new ParamDescriptor("e1Recipe", typeof(string), Default: "",
+            new ParamDescriptor("e1Recipe", typeof(string), Default: "", IsPath: true,
                 Description: "E1(온전한 die) 레시피 경로 — 필수. 이 파일 기준 상대 경로"),
-            new ParamDescriptor("e0Recipe", typeof(string), Default: "",
+            new ParamDescriptor("e0Recipe", typeof(string), Default: "", IsPath: true,
                 Description: "E0(가장자리 die) 레시피 경로. 원판이면 원판 밖을 가리는 것(die.dark.masked)"),
             new ParamDescriptor("cols", typeof(int), Default: 1, Min: 1, Description: "격자 열 수"),
             new ParamDescriptor("rows", typeof(int), Default: 1, Min: 1, Description: "격자 행 수"),

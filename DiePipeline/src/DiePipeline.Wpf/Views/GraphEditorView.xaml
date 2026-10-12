@@ -15,6 +15,7 @@
         <conv:CategoryToBrushConverter x:Key="CategoryBrush" />
         <conv:ErrorToBrushConverter x:Key="ErrorBrush" />
         <conv:InverseBoolToVisibilityConverter x:Key="HideWhenTrue" />
+        <BooleanToVisibilityConverter x:Key="ShowWhenTrue" />
 
         <!--
             ★★ 속성폼의 핵심. ParamDescriptor → PropertyField → 여기서 컨트롤이 정해진다.
@@ -67,7 +68,18 @@
             </StackPanel>
         </DataTemplate>
 
-        <!-- Control 값을 보고 위 넷 중 하나를 고른다. 기본은 Text -->
+        <!-- 경로 — 입력칸 + 찾아보기. 고른 파일은 레시피 폴더 기준 상대 경로로 적힌다 -->
+        <DataTemplate x:Key="PathTemplate">
+            <StackPanel>
+                <TextBlock Text="{Binding Name}" ToolTip="{Binding Description}" />
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="찾아보기" Command="{Binding BrowseCommand}" Padding="6,0" Margin="3,0,0,0" />
+                    <TextBox Text="{Binding StringValue, UpdateSourceTrigger=PropertyChanged}" />
+                </DockPanel>
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- Control 값을 보고 위 틀 중 하나를 고른다. 기본은 Text -->
         <DataTemplate DataType="{x:Type vm:PropertyFieldViewModel}">
             <ContentControl Content="{Binding}" Margin="0,4">
                 <ContentControl.Style>
@@ -86,10 +98,110 @@
                             <DataTrigger Binding="{Binding Control}" Value="Number">
                                 <Setter Property="ContentTemplate" Value="{StaticResource NumberTemplate}" />
                             </DataTrigger>
+                            <DataTrigger Binding="{Binding Control}" Value="Path">
+                                <Setter Property="ContentTemplate" Value="{StaticResource PathTemplate}" />
+                            </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </ContentControl.Style>
             </ContentControl>
+        </DataTemplate>
+
+        <!--
+            ★ 목록 · 묶음 값의 '행 목록' 부품 — 표식 자리 · 표식 조각 · 원판 · 수동 지정이 같은 틀을 쓴다.
+              칸 종류(글자 · 고르기 · 경로)는 위 낱개 칸과 같은 방법(Control 값)으로 고른다.
+        -->
+        <DataTemplate x:Key="CellTextTemplate">
+            <TextBox Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" ToolTip="{Binding Header}" Margin="0,0,2,0" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="CellChoiceTemplate">
+            <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Text}" ToolTip="{Binding Header}" Margin="0,0,2,0" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="CellPathTemplate">
+            <DockPanel Margin="0,0,2,0">
+                <Button DockPanel.Dock="Right" Content="…" Command="{Binding BrowseCommand}" Padding="5,0" Margin="2,0,0,0"
+                        ToolTip="찾아보기 — 레시피 폴더 기준 상대 경로로 적는다" />
+                <TextBox Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" ToolTip="{Binding Header}" />
+            </DockPanel>
+        </DataTemplate>
+
+        <DataTemplate DataType="{x:Type vm:ListCellViewModel}">
+            <ContentControl Content="{Binding}">
+                <ContentControl.Style>
+                    <Style TargetType="ContentControl">
+                        <Setter Property="ContentTemplate" Value="{StaticResource CellTextTemplate}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Control}" Value="Choice">
+                                <Setter Property="ContentTemplate" Value="{StaticResource CellChoiceTemplate}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Control}" Value="Path">
+                                <Setter Property="ContentTemplate" Value="{StaticResource CellPathTemplate}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ContentControl.Style>
+            </ContentControl>
+        </DataTemplate>
+
+        <DataTemplate DataType="{x:Type vm:ListParamViewModel}">
+            <Border BorderBrush="#D9DFEA" BorderThickness="1" CornerRadius="3" Padding="5,3" Margin="0,8,0,2">
+                <StackPanel>
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="+ 추가" Command="{Binding AddCommand}" Padding="6,0" FontSize="11"
+                                Visibility="{Binding IsList, Converter={StaticResource ShowWhenTrue}}" />
+                        <CheckBox DockPanel.Dock="Right" Content="씀" IsChecked="{Binding Enabled}" VerticalAlignment="Center"
+                                  Visibility="{Binding IsOptional, Converter={StaticResource ShowWhenTrue}}" />
+                        <TextBlock FontWeight="Bold" VerticalAlignment="Center">
+                            <Run Text="{Binding Title, Mode=OneWay}" />
+                            <Run Text="{Binding Name, StringFormat=({0}), Mode=OneWay}" Foreground="#64748B" FontWeight="Normal" />
+                        </TextBlock>
+                    </DockPanel>
+                    <TextBlock Text="{Binding Description}" FontSize="10" Foreground="#64748B" TextWrapping="Wrap" Margin="0,1,0,3" />
+
+                    <!-- 칸 머리 — 오른쪽 단추 자리(66)만큼 비워 아래 칸과 줄을 맞춘다 -->
+                    <DockPanel>
+                        <Border DockPanel.Dock="Right" Width="66" />
+                        <ItemsControl ItemsSource="{Binding Headers}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Rows="1" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" FontSize="10" Foreground="#475569" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </DockPanel>
+
+                    <ItemsControl ItemsSource="{Binding Rows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="0,1">
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Width="66">
+                                        <Button Content="▲" Command="{Binding MoveUpCommand}" Padding="4,0" FontSize="10" ToolTip="위로"
+                                                Visibility="{Binding DataContext.CanReorder, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource ShowWhenTrue}}" />
+                                        <Button Content="▼" Command="{Binding MoveDownCommand}" Padding="4,0" FontSize="10" Margin="1,0" ToolTip="아래로"
+                                                Visibility="{Binding DataContext.CanReorder, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource ShowWhenTrue}}" />
+                                        <Button Content="✕" Command="{Binding RemoveCommand}" Padding="4,0" FontSize="10" ToolTip="이 행 지우기"
+                                                Visibility="{Binding DataContext.IsList, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource ShowWhenTrue}}" />
+                                    </StackPanel>
+                                    <ItemsControl ItemsSource="{Binding Cells}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <UniformGrid Rows="1" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
         </DataTemplate>
     </UserControl.Resources>
 
@@ -243,7 +355,14 @@
                     <Run Text="{Binding SelectedNode.DisplayName, Mode=OneWay}" />
                 </TextBlock>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding SelectedNode.Fields}" />
+                    <StackPanel>
+                        <!-- 입구 블록을 고르면 무엇이 들어오는지 한 줄(없으면 빈 글자) -->
+                        <TextBlock Text="{Binding SelectedHint}" TextWrapping="Wrap" Foreground="#475569" Margin="0,4,0,0" />
+                        <!-- 낱개 값 — 서술자에서 -->
+                        <ItemsControl ItemsSource="{Binding SelectedNode.Fields}" />
+                        <!-- 목록 · 묶음 값 — 표(ListParams)에서. 입구 블록이면 그 입구로 들어가는 값 -->
+                        <ItemsControl ItemsSource="{Binding SelectedLists}" />
+                    </StackPanel>
                 </ScrollViewer>
             </DockPanel>
 

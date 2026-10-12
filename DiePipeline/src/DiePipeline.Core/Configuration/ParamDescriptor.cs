@@ -23,6 +23,9 @@ public enum ParamConstraint
 ///   이 넷을 손으로 따로 만들면 <b>반드시 어긋난다</b>.
 ///   코드는 홀수를 요구하는데 UI는 짝수를 받고 문서엔 최대 15라고 적힌 상태 —
 ///   실무에서 가장 흔한 종류의 버그다. 선언을 한 군데로 모아 원천 차단한다.
+///
+/// ★ <paramref name="IsPath"/> — 글자 값이 <b>파일 경로</b>다(웨이퍼 레시피의 die 레시피 경로 등).
+///   검증은 똑같이 글자로 하고, 속성 칸만 '찾아보기' 를 붙인다. 경로는 레시피 파일이 있는 폴더 기준 상대 경로로 적는다.
 /// </summary>
 public sealed record ParamDescriptor(
     string Name,
@@ -33,4 +36,5 @@ public sealed record ParamDescriptor(
     string[]? Choices = null,
     string? Description = null,
     bool Required = false,
-    ParamConstraint Constraint = ParamConstraint.None);
+    ParamConstraint Constraint = ParamConstraint.None,
+    bool IsPath = false);

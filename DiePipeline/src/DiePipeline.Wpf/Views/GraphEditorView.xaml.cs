@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿using System.ComponentModel;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -19,6 +20,9 @@ public partial class GraphEditorView : UserControl
     /// <summary>오른쪽 아래 칸에 끼울 것 — die 탭은 미리보기, 웨이퍼 편집 탭은 실행.</summary>
     public static readonly DependencyProperty SideContentProperty = DependencyProperty.Register(
         nameof(SideContent), typeof(object), typeof(GraphEditorView), new PropertyMetadata(null));
+
+    // 그래프 전체 보기를 아직 못 했다 — 캔버스가 보이고 크기가 생기면 한다.
+    private bool _fitPending;
 
     /// <summary>
     /// ★ Nodify 기본은 선 더블클릭 = '선 나누기' 다. 우리는 선 나누기를 안 쓰니 풀어 둔다 — 더블클릭은 끊기에 쓴다(<see cref="OnLineMouseDown"/>).
@@ -44,6 +48,12 @@ public partial class GraphEditorView : UserControl
         };
 
         Loaded += (_, _) => FitToScreen();
+
+        // ★ 맞추기를 미뤄 둔 채 탭이 보이고 크기가 생기면 — 또는 Nodify 의 '확대 금지' 가 풀리면 — 그때 맞춘다(아래 FitToScreen).
+        Canvas.SizeChanged += (_, _) => FitIfPending();
+        IsVisibleChanged += (_, _) => FitIfPending();
+        DependencyPropertyDescriptor.FromProperty(NodifyEditor.DisableZoomingProperty, typeof(NodifyEditor))
+            .AddValueChanged(Canvas, (_, _) => FitIfPending());
     }
 
     public object? SideContent
@@ -69,7 +79,25 @@ public partial class GraphEditorView : UserControl
 
     /// <summary>
     /// 그래프 전체가 보이게 맞춘다. ★ 블록 크기를 잰 <b>뒤</b>라야 맞출 수 있어서, 화면 배치가 끝난 다음 차례로 미룬다.
+    /// ★ 캔버스가 안 보이거나 크기가 0 이면(아직 안 연 탭) 맞출 화면이 없다 — 그때 맞추면 가장 작게(0.1배) 줄어든다.
+    ///   탭이 처음 보이는 순간에는 Nodify 가 잠깐 확대를 막아 두기도 한다(<c>DisableZooming</c>) — 그때 맞추면 무시된다.
+    ///   그래서 '맞춰야 함' 만 적어 두고, 보이고 크기가 생기고 확대가 풀린 뒤 한 번 맞춘다.
     /// </summary>
     private void FitToScreen()
-        => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => Canvas.FitToScreen(null)));
+    {
+        _fitPending = true;
+        FitIfPending();
+    }
+
+    private void FitIfPending()
+        => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (!_fitPending || !Canvas.IsVisible || Canvas.ActualWidth <= 0 || Canvas.ActualHeight <= 0 || Canvas.DisableZooming)
+            {
+                return;
+            }
+
+            _fitPending = false;
+            Canvas.FitToScreen(null);
+        }));
 }

@@ -21,6 +21,9 @@ public enum FieldControl
 
     /// <summary>자유 입력칸</summary>
     Text,
+
+    /// <summary>파일 경로 — 입력칸 + 찾아보기. 고른 파일은 레시피 폴더 기준 상대 경로로 적는다.</summary>
+    Path,
 }
 
 /// <summary>디스크립터에서 파생된 편집 칸 하나. 화면은 <b>이것만</b> 보고 그린다.</summary>
@@ -83,6 +86,7 @@ public static class PropertyFormModel
             param.Choices is { Length: > 0 } ? FieldControl.Choice :
             param.Type == typeof(int) ? FieldControl.Integer :
             param.Type == typeof(double) ? FieldControl.Number :
+            param.IsPath ? FieldControl.Path :
             FieldControl.Text;
 
         return new PropertyField(

@@ -33,7 +33,8 @@ public sealed class NodeViewModel : ObservableObject
     private bool _hasError;
 
     /// <summary>진짜 파이프라인 블록.</summary>
-    public NodeViewModel(EditorNode model, INodeDescriptor descriptor, Action onChanged)
+    /// <param name="services">속성 칸이 묻는 것(기준 폴더 · 파일 고르기). 없으면 찾아보기가 아무 일도 안 한다.</param>
+    public NodeViewModel(EditorNode model, INodeDescriptor descriptor, Action onChanged, FieldServices? services = null)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(descriptor);
@@ -54,7 +55,12 @@ public sealed class NodeViewModel : ObservableObject
             Output.Add(new ConnectorViewModel(this, port.Name, isInput: false));
         }
 
-        Fields = [.. descriptor.Params.Select(p => new PropertyFieldViewModel(model, PropertyFormModel.FromParam(p), onChanged))];
+        FieldServices fieldServices = services ?? FieldServices.None;
+
+        Fields = [.. descriptor.Params.Select(p => new PropertyFieldViewModel(model, PropertyFormModel.FromParam(p), onChanged, fieldServices))];
+
+        // ★ 서술자로 못 적는 목록 · 묶음 값(표식 자리 · 표식 조각 · 원판 · 수동 지정) — 표(ListParams)에 있는 것만.
+        Lists = [.. ListParams.For(model.Type).Select(p => new ListParamViewModel(model, p, onChanged, fieldServices))];
     }
 
     /// <summary>컨텍스트 입력 블록 — 실행기가 넣어 주는 것이라 레시피에는 없다.</summary>
@@ -68,6 +74,7 @@ public sealed class NodeViewModel : ObservableObject
         // ★ 컨텍스트의 출력 이름은 키 그 자체다 — 그래서 선이 그 이름으로 이어진다.
         Output.Add(new ConnectorViewModel(this, contextKey, isInput: false));
         Fields = [];
+        Lists = [];
     }
 
     /// <summary>컨텍스트 입력이면 <c>null</c>.</summary>
@@ -98,6 +105,9 @@ public sealed class NodeViewModel : ObservableObject
     public ObservableCollection<ConnectorViewModel> Output { get; } = [];
 
     public IReadOnlyList<PropertyFieldViewModel> Fields { get; }
+
+    /// <summary>목록 · 묶음 값 칸들 — 낱개 값(<see cref="Fields"/>) 아래에 그린다. 대부분의 블록은 비었다.</summary>
+    public IReadOnlyList<ListParamViewModel> Lists { get; }
 
     /// <summary>검증 오류가 이 블록을 가리키면 true — 캔버스에서 빨간 테두리로 보인다.</summary>
     public bool HasError
