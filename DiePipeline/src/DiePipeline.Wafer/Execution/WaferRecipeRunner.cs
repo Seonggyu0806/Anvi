@@ -39,17 +39,30 @@ public static class WaferRecipeRunner
 {
     /// <summary>
     /// 레시피 파일로 돌린다 — 안에 적힌 die 레시피 · 표식 조각 경로는 <b>이 파일이 있는 폴더 기준</b>이다(교수님 CLI 와 같다).
-    /// ★ 경로 푸는 규칙은 <see cref="PathFrom"/> 한 곳 — 명령행 · 시험이 같은 규칙을 쓴다.
+    /// ★ 경로 푸는 규칙은 <see cref="PathIn"/> 한 곳 — 명령행 · 화면 · 시험이 같은 규칙을 쓴다.
     /// </summary>
     public static WaferInspectionResult RunFile(
         string recipePath, IImageSource source, NodeRegistry registry, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(recipePath);
 
+        return RunIn(RecipeLoader.Load(recipePath), FolderOf(recipePath), source, registry, ct);
+    }
+
+    /// <summary>
+    /// 메모리에 있는 레시피로 돌린다 — 안의 경로는 <paramref name="folder"/> 기준. 웨이퍼 에디터가 쓴다.
+    /// ★ 화면의 그래프는 아직 파일로 안 썼을 수 있다. 그래도 경로는 <b>그 레시피를 연 · 저장한 폴더</b> 기준이라
+    ///   파일로 돌릴 때(<see cref="RunFile"/>)와 같은 파일을 읽는다.
+    /// </summary>
+    public static WaferInspectionResult RunIn(
+        Recipe recipe, string folder, IImageSource source, NodeRegistry registry, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folder);
+
         return Run(
-            RecipeLoader.Load(recipePath), source, registry,
-            path => RecipeLoader.Load(PathFrom(recipePath, path)),
-            path => ImageFile.LoadGrayF32(PathFrom(recipePath, path)),
+            recipe, source, registry,
+            path => RecipeLoader.Load(PathIn(folder, path)),
+            path => ImageFile.LoadGrayF32(PathIn(folder, path)),
             ct);
     }
 
@@ -60,10 +73,20 @@ public static class WaferRecipeRunner
     public static string PathFrom(string recipePath, string reference)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(recipePath);
+
+        return PathIn(FolderOf(recipePath), reference);
+    }
+
+    /// <summary>레시피 안에 적힌 경로 → 실제 경로. 상대 경로면 <paramref name="folder"/> 기준, 절대 경로면 그대로.</summary>
+    public static string PathIn(string folder, string reference)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folder);
         ArgumentException.ThrowIfNullOrWhiteSpace(reference);
 
-        return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(recipePath))!, reference));
+        return Path.GetFullPath(Path.Combine(folder, reference));
     }
+
+    private static string FolderOf(string recipePath) => Path.GetDirectoryName(Path.GetFullPath(recipePath))!;
 
     /// <param name="loadRecipe">InspectDies 에 적힌 die 레시피 경로 → 레시피. 상대 경로를 푸는 것은 부르는 쪽이다.</param>
     /// <param name="loadTemplate">

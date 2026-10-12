@@ -233,7 +233,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
                 <RowDefinition Height="120" />
-                <RowDefinition Height="250" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <!-- ★ 속성폼. ItemsControl 하나가 전부다 — 위 Resources 의 틀이 알아서 고른다 -->
@@ -261,7 +261,8 @@
             </GroupBox>
 
             <!--
-                ★ 탭마다 다른 것을 끼우는 자리 — die 탭은 미리보기, 웨이퍼 편집 탭은 실행.
+                ★ 탭마다 다른 것을 끼우는 자리 — die 탭은 미리보기. 높이는 끼우는 쪽이 정한다(안 끼우면 칸이 없다).
+                  웨이퍼 에디터 탭은 실행 칸이 넓어야 해서(맵 + 결함 표) 여기가 아니라 편집기 아래에 둔다.
                   편집기는 여기에 무엇이 오는지 모른다.
             -->
             <ContentPresenter Grid.Row="2" Margin="0,6"

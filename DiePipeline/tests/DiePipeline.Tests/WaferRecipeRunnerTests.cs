@@ -3,6 +3,7 @@ using DiePipeline.Core.Domain;
 using DiePipeline.Core.Imaging;
 using DiePipeline.Core.Registry;
 using DiePipeline.Cv.Imaging;
+using DiePipeline.Editor;
 using DiePipeline.Wafer.Config;
 using DiePipeline.Wafer.Domain;
 using DiePipeline.Wafer.Execution;
@@ -437,5 +438,54 @@ public sealed class WaferRecipeRunnerTests
         Assert.Equal(Path.Combine(Path.GetTempPath(), "a", "b", "features", "m.bmp"),
             WaferRecipeRunner.PathFrom(recipe, "features/m.bmp"));
         Assert.Equal(absolute, WaferRecipeRunner.PathFrom(recipe, absolute));
+    }
+
+    /// <summary>
+    /// ★★ 웨이퍼 에디터 입구 — 견본을 편집기 그래프로 바꿨다가 다시 레시피로 내보내 <b>메모리에서</b> 돌려도
+    ///   파일로 돌린 것과 같은 답이다. 화면에서 돌린 결과와 명령행 결과가 같다는 뜻이다.
+    /// </summary>
+    [Fact]
+    public void 편집기를_거친_견본은_파일과_같은_답()
+    {
+        using SyntheticWafer wafer = SyntheticWafer.Draw(new SyntheticWaferSpec());
+        using MatImageSource source = Source(wafer);
+        string file = Sample("wafer/demo.wafer.json");
+
+        Recipe edited = RecipeMapper.Export(RecipeMapper.FromRecipe(RecipeLoader.Load(file)), Registry);
+
+        WaferInspectionResult byFile = WaferRecipeRunner.RunFile(file, source, Registry);
+        WaferInspectionResult byEditor = WaferRecipeRunner.RunIn(edited, Path.GetDirectoryName(file)!, source, Registry);
+
+        Assert.False(byEditor.Stopped);
+        Assert.Equal(byFile.Alignment.Origin, byEditor.Alignment.Origin);
+        Assert.Equal(Rows(byFile.Found!), Rows(byEditor.Found!));
+        Assert.Equal(Rows(byFile.Defects!), Rows(byEditor.Defects!));
+    }
+
+    /// <summary>★ 다른 폴더에 저장한 견본(경로를 옮겨 적은 것)도 명령행 입구로 그대로 돈다.</summary>
+    [Fact]
+    public void 다른_폴더에_옮겨_저장한_견본도_그대로_돈다()
+    {
+        string file = Sample("wafer/demo.wafer.json");
+        DirectoryInfo folder = Directory.CreateTempSubdirectory("dp-rebase-");
+
+        try
+        {
+            string saved = Path.Combine(folder.FullName, "moved.wafer.json");
+            Recipe moved = WaferRecipePaths.Rebase(RecipeLoader.Load(file), Path.GetDirectoryName(file)!, folder.FullName);
+            File.WriteAllText(saved, RecipeLoader.Serialize(moved));
+
+            using SyntheticWafer wafer = SyntheticWafer.Draw(new SyntheticWaferSpec());
+            using MatImageSource source = Source(wafer);
+
+            WaferInspectionResult result = WaferRecipeRunner.RunFile(saved, source, Registry);
+
+            (int Col, int Row)[] found = [.. result.Found!.Items.Select(d => (d.DieCol, d.DieRow)).Order()];
+            Assert.Equal(Truth(wafer), found);
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
     }
 }

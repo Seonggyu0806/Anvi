@@ -2,6 +2,7 @@
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
+using DiePipeline.Wafer.Execution;
 
 namespace DiePipeline.Wpf.Converters;
 
@@ -50,6 +51,34 @@ public sealed class ErrorToBrushConverter : IValueConverter
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value is true ? Error : Normal;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => Binding.DoNothing;
+
+    private static SolidColorBrush Make(byte r, byte g, byte b)
+    {
+        SolidColorBrush brush = new(Color.FromRgb(r, g, b));
+        brush.Freeze();
+        return brush;
+    }
+}
+
+/// <summary>
+/// 웨이퍼 맵 칸 상태 → 칸 색. E1 초록 · E0 청회 · 결함 빨강 · 터짐 주황 · 원판 밖 옅은 회색(교수님 맵과 같은 짝).
+/// </summary>
+public sealed class WaferMapStateToBrushConverter : IValueConverter
+{
+    private static readonly Dictionary<WaferMapState, SolidColorBrush> Map = new()
+    {
+        [WaferMapState.E1] = Make(0xC8, 0xE6, 0xC9),
+        [WaferMapState.E0] = Make(0xCF, 0xD8, 0xDC),
+        [WaferMapState.Defective] = Make(0xE5, 0x73, 0x73),
+        [WaferMapState.Failed] = Make(0xFF, 0xB7, 0x4D),
+        [WaferMapState.Outside] = Make(0xF3, 0xF4, 0xF6),
+    };
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is WaferMapState state && Map.TryGetValue(state, out SolidColorBrush? brush) ? brush : Brushes.Transparent;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => Binding.DoNothing;

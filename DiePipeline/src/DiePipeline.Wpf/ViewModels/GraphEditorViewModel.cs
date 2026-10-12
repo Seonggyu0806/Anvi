@@ -29,6 +29,18 @@ public sealed record GraphEditorSettings
     /// <summary>시작 그래프 — 처음 열 때와 '표준 불러오기' 를 누를 때.</summary>
     public required Func<EditorGraph> StarterGraph { get; init; }
 
+    /// <summary>
+    /// 시작 레시피 <b>파일</b> — 있으면 <see cref="StarterGraph"/> 대신 이 파일을 연다(웨이퍼 탭: 합성 견본).
+    /// ★ 파일로 열어야 안에 적힌 상대 경로를 풀 기준 폴더가 생긴다. 파일이 없으면 <see cref="StarterGraph"/> 로 돌아간다.
+    /// </summary>
+    public string? StarterFile { get; init; }
+
+    /// <summary>
+    /// 다른 폴더에 저장할 때 레시피 안의 경로를 새 폴더 기준으로 고쳐 적는다 — (레시피, 옛 폴더, 새 폴더) → 새 레시피.
+    /// ★ 경로를 품은 레시피(웨이퍼)만 준다. 없으면 레시피를 그대로 쓴다(die 레시피에는 경로가 없다).
+    /// </summary>
+    public Func<Recipe, string, string, Recipe>? RebasePaths { get; init; }
+
     /// <summary>열기 · 내보내기 대화상자의 파일 종류.</summary>
     public string FileFilter { get; init; } = "레시피 JSON (*.json)|*.json";
 
@@ -57,6 +69,7 @@ public sealed partial class GraphEditorViewModel : ObservableObject
     private readonly RelayCommand _redo;
 
     private EditorGraph _graph = new();
+    private string? _filePath;
 
     private NodeViewModel? _selectedNode;
     private bool _isValid;
@@ -90,10 +103,10 @@ public sealed partial class GraphEditorViewModel : ObservableObject
         DisconnectCommand = new RelayCommand<ConnectionViewModel>(Disconnect);
         DuplicateSelectedCommand = new RelayCommand(DuplicateSelected);
         DeleteSelectedCommand = new RelayCommand(DeleteSelected);
-        NewStandardCommand = new RelayCommand(() => LoadGraph(settings.StarterGraph(), fresh: true));
+        NewStandardCommand = new RelayCommand(OpenStarter);
         FitCommand = new RelayCommand(() => FitRequested?.Invoke());
 
-        LoadGraph(settings.StarterGraph(), fresh: true);
+        OpenStarter();
     }
 
     /// <summary>
@@ -173,6 +186,25 @@ public sealed partial class GraphEditorViewModel : ObservableObject
         get => _isValid;
         private set => SetField(ref _isValid, value);
     }
+
+    /// <summary>
+    /// 지금 그래프를 연 · 저장한 레시피 파일. 파일에서 오지 않았으면(표준 그래프) <c>null</c>.
+    /// ★ 레시피 안의 상대 경로는 이 파일이 있는 폴더(<see cref="Folder"/>) 기준이다 — 웨이퍼 실행이 그 폴더로 경로를 푼다.
+    /// </summary>
+    public string? FilePath
+    {
+        get => _filePath;
+        private set
+        {
+            if (SetField(ref _filePath, value))
+            {
+                OnPropertyChanged(nameof(Folder));
+            }
+        }
+    }
+
+    /// <summary>레시피 안의 상대 경로를 푸는 기준 폴더 — <see cref="FilePath"/> 가 있는 폴더. 없으면 <c>null</c>.</summary>
+    public string? Folder => _filePath is null ? null : Path.GetDirectoryName(Path.GetFullPath(_filePath));
 
     /// <summary>상태줄 한 줄. 탭(미리보기 · 실행)도 여기에 쓴다 — 상태줄은 하나다.</summary>
     public string StatusText
@@ -400,11 +432,40 @@ public sealed partial class GraphEditorViewModel : ObservableObject
             return;
         }
 
-        // ★ 두 파일로 나눠 쓴다 — 레시피는 검사 내용, 곁다리는 블록 좌표.
-        File.WriteAllText(dialog.FileName, RecipeLoader.Serialize(recipe));
-        File.WriteAllText(LayoutPath(dialog.FileName), LayoutSidecar.From(_graph).Serialize());
+        Save(dialog.FileName, recipe);
+    }
 
-        StatusText = $"내보냈습니다: {Path.GetFileName(dialog.FileName)} (+ .layout.json)";
+    /// <summary>검증을 지난 레시피를 <paramref name="path"/> 에 쓴다(+ 좌표 파일). 그 파일이 이제 '연 파일' 이다.</summary>
+    private void Save(string path, Recipe recipe)
+    {
+        // ★ 다른 폴더에 쓰면 안의 상대 경로를 새 폴더 기준으로 고쳐 적는다 — 안 그러면 저장한 파일이 엉뚱한 곳을 가리킨다.
+        string folder = Path.GetDirectoryName(Path.GetFullPath(path))!;
+        bool moved = _settings.RebasePaths is not null && Folder is { } from && !SameFolder(from, folder);
+
+        if (moved)
+        {
+            recipe = _settings.RebasePaths!(recipe, Folder!, folder);
+        }
+
+        // ★ 두 파일로 나눠 쓴다 — 레시피는 검사 내용, 곁다리는 블록 좌표.
+        File.WriteAllText(path, RecipeLoader.Serialize(recipe));
+        File.WriteAllText(LayoutPath(path), LayoutSidecar.From(_graph).Serialize());
+
+        FilePath = path;
+
+        if (moved)
+        {
+            // ★ 화면의 그래프도 고쳐 적은 경로로 바꾼다 — 안 그러면 다음 실행이 새 폴더 기준으로 옛 경로를 풀어 엉뚱한 파일을 읽는다.
+            //   되돌리기 기록은 옛 폴더 기준이라 비운다.
+            EditorGraph graph = RecipeMapper.FromRecipe(recipe);
+            LayoutSidecar.From(_graph).ApplyTo(graph);
+            _history.Clear();
+            LoadGraph(graph, fresh: false);
+        }
+
+        StatusText = moved
+            ? $"내보냈습니다: {Path.GetFileName(path)} (+ .layout.json) — 안의 경로를 새 폴더 기준으로 고쳐 적었습니다"
+            : $"내보냈습니다: {Path.GetFileName(path)} (+ .layout.json)";
     }
 
     private void Import()
@@ -416,11 +477,29 @@ public sealed partial class GraphEditorViewModel : ObservableObject
             return;
         }
 
+        Open(dialog.FileName);
+    }
+
+    /// <summary>시작 그래프 — 시작 파일이 있으면 그 파일, 없으면 설정의 시작 그래프.</summary>
+    private void OpenStarter()
+    {
+        if (_settings.StarterFile is { } file && File.Exists(file) && Open(file))
+        {
+            return;
+        }
+
+        FilePath = null;
+        LoadGraph(_settings.StarterGraph(), fresh: true);
+    }
+
+    /// <summary>레시피 파일 하나를 연다(+ 좌표 파일). 못 읽으면 검증칸에 까닭을 띄우고 <c>false</c>.</summary>
+    private bool Open(string path)
+    {
         Recipe recipe;
 
         try
         {
-            recipe = RecipeLoader.Load(dialog.FileName);
+            recipe = RecipeLoader.Load(path);
         }
         catch (RecipeLoadException error)
         {
@@ -429,11 +508,11 @@ public sealed partial class GraphEditorViewModel : ObservableObject
             ValidationMessages.Add(error.Message);
             IsValid = false;
             StatusText = "레시피를 읽지 못했습니다";
-            return;
+            return false;
         }
 
         EditorGraph graph = RecipeMapper.FromRecipe(recipe);
-        string layoutPath = LayoutPath(dialog.FileName);
+        string layoutPath = LayoutPath(path);
 
         // 좌표 파일이 같이 있으면 그대로, 없으면 흐름 순서대로 늘어놓는다(안 그러면 전부 0,0 에 겹친다).
         if (File.Exists(layoutPath))
@@ -445,8 +524,10 @@ public sealed partial class GraphEditorViewModel : ObservableObject
             LayoutEngine.Layered(graph, CanvasLeft);
         }
 
+        FilePath = path;
         LoadGraph(graph, fresh: true);
-        StatusText = $"불러왔습니다: {Path.GetFileName(dialog.FileName)}";
+        StatusText = $"불러왔습니다: {Path.GetFileName(path)}";
+        return true;
     }
 
     // ───────────────────────── 내부 ─────────────────────────
@@ -545,4 +626,10 @@ public sealed partial class GraphEditorViewModel : ObservableObject
 
     private static string LayoutPath(string recipePath)
         => Path.ChangeExtension(recipePath, null) + ".layout.json";
+
+    private static bool SameFolder(string a, string b)
+        => string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)),
+            StringComparison.OrdinalIgnoreCase);
 }

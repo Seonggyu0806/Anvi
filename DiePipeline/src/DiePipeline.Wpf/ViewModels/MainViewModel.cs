@@ -66,6 +66,8 @@ public sealed class MainViewModel : ObservableObject
         // ★ 웨이퍼 탭은 die 탭의 '지금 그래프' 를 레시피로 쓴다 — 따로 들고 있으면 둘이 갈라진다.
         //   내보내기와 같은 길(검증 강제)을 탄다 — 검증에 막히면 웨이퍼 검사도 안 돌아간다.
         Wafer = new WaferViewModel(registry, Editor.ExportRecipe);
+
+        WaferEditor = new WaferEditorViewModel();
     }
 
     /// <summary>블록 편집기 — 웨이퍼 편집 탭과 같은 부품.</summary>
@@ -73,6 +75,9 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>웨이퍼 탭. die 탭의 그래프를 그대로 레시피로 쓴다.</summary>
     public WaferViewModel Wafer { get; }
+
+    /// <summary>웨이퍼 에디터 탭 — 웨이퍼 레시피(<c>*.wafer.json</c>)를 블록으로 짜고 돌린다. die 탭과 같은 편집기 부품.</summary>
+    public WaferEditorViewModel WaferEditor { get; }
 
     /// <summary>단계별 중간 이미지. 실행 순서대로 늘어선다.</summary>
     public ObservableCollection<PreviewItem> PreviewItems { get; } = [];

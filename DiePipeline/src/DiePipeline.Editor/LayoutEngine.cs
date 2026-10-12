@@ -11,8 +11,11 @@
 /// </summary>
 public static class LayoutEngine
 {
-    /// <summary>열 사이 간격(px) — Nodify 블록(포트 이름 · 체크박스)이 겹치지 않을 만큼.</summary>
-    public const double ColumnGap = 260;
+    /// <summary>
+    /// 열 사이 간격(px) — Nodify 블록(포트 이름 · 체크박스)이 겹치지 않을 만큼.
+    /// ★ 가장 넓은 블록(웨이퍼 InspectDies — 출력 셋 + 체크박스)이 260 이면 옆 열에 닿아서 300 으로 늘렸다.
+    /// </summary>
+    public const double ColumnGap = 300;
 
     /// <summary>같은 열 안 줄 사이 간격(px).</summary>
     public const double RowGap = 160;
