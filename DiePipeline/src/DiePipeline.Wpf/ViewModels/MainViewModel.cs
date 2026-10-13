@@ -31,6 +31,9 @@ public enum Workspace
 
     /// <summary>웨이퍼 · 옵션 검사 — 레시피 파일 없이 입력칸으로 검사(이전 '웨이퍼' 탭).</summary>
     WaferOptions,
+
+    /// <summary>원본 · 이미지 뷰어 — 원본 한 장을 축소본 + 선명 조각으로 확대 · 이동하며 본다.</summary>
+    Viewer,
 }
 
 /// <summary>
@@ -104,6 +107,8 @@ public sealed class MainViewModel : ObservableObject
         Wafer = new WaferViewModel(registry, Editor.ExportRecipe);
 
         WaferEditor = new WaferEditorViewModel();
+
+        Viewer = new ImageViewerViewModel();
     }
 
     /// <summary>지금 보이는 작업공간 — 맨 위 바의 단추가 바꾼다.</summary>
@@ -121,6 +126,9 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>웨이퍼 에디터 탭 — 웨이퍼 레시피(<c>*.wafer.json</c>)를 블록으로 짜고 돌린다. die 탭과 같은 편집기 부품.</summary>
     public WaferEditorViewModel WaferEditor { get; }
+
+    /// <summary>원본 이미지 뷰어.</summary>
+    public ImageViewerViewModel Viewer { get; }
 
     /// <summary>단계별 중간 이미지. 실행 순서대로 늘어선다.</summary>
     public ObservableCollection<PreviewItem> PreviewItems { get; } = [];

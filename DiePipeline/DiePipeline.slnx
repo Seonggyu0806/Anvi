@@ -4,6 +4,7 @@
     <Project Path="src/DiePipeline.Core/DiePipeline.Core.csproj" />
     <Project Path="src/DiePipeline.Cv/DiePipeline.Cv.csproj" />
     <Project Path="src/DiePipeline.Editor/DiePipeline.Editor.csproj" />
+    <Project Path="src/DiePipeline.Viewer/DiePipeline.Viewer.csproj" />
     <Project Path="src/DiePipeline.Wafer/DiePipeline.Wafer.csproj" />
     <Project Path="src/DiePipeline.Wpf/DiePipeline.Wpf.csproj" />
   </Folder>

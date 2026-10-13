@@ -1,0 +1,74 @@
+<UserControl x:Class="DiePipeline.Wpf.Views.ImageViewerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:DiePipeline.Wpf.Converters">
+
+    <!--
+        ★ 원본 이미지 뷰어 — DataContext 는 ImageViewerViewModel.
+          판(Board) = 원본 픽셀 크기. 축소본을 판 크기로 늘여 깔고, 확대는 판 전체에 배율(LayoutTransform)을 건다.
+          그래서 판 위 좌표는 늘 원본 픽셀이다 — 선명 조각도 원본 좌표 그대로 덮는다.
+        ★ 휠 = 커서 기준 확대 · 축소, 오른쪽 버튼 끌기 = 이동(블록 캔버스와 같은 조작).
+    -->
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="ShowWhenTrue" />
+        <conv:InverseBoolToVisibilityConverter x:Key="HideWhenTrue" />
+    </UserControl.Resources>
+
+    <DockPanel>
+        <ToolBarTray DockPanel.Dock="Top">
+            <ToolBar>
+                <Button Content="원본 열기…" Command="{Binding OpenCommand}"
+                        ToolTip="raw(옆에 설명 파일) · bmp · png · tif — 큰 원본은 축소본으로 열고, 확대하면 보이는 영역만 원본에서 읽는다" />
+                <Separator />
+                <Button Content="화면 맞춤" Click="OnFit" ToolTip="그림 전체가 보이게" />
+                <Button Content="100%" Click="OnActualSize" ToolTip="원본 1 px = 화면 1 px" />
+                <Button Content="＋" Click="OnZoomIn" ToolTip="확대(휠 위로)" />
+                <Button Content="－" Click="OnZoomOut" ToolTip="축소(휠 아래로)" />
+                <TextBlock Text="{Binding ZoomText}" VerticalAlignment="Center" Margin="8,0" MinWidth="56" />
+            </ToolBar>
+        </ToolBarTray>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock Text="{Binding CursorText}" MinWidth="240" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <TextBlock Text="{Binding InfoText}" />
+            </StatusBarItem>
+        </StatusBar>
+
+        <Grid Background="#1E2630">
+            <TextBlock Text="'원본 열기…' 로 사진을 여세요 — 휠: 확대 · 축소 · 오른쪽 버튼 끌기: 이동"
+                       Foreground="#9AA4B2" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Visibility="{Binding HasImage, Converter={StaticResource HideWhenTrue}}" />
+
+            <ScrollViewer x:Name="Scroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                          Visibility="{Binding HasImage, Converter={StaticResource ShowWhenTrue}}"
+                          PreviewMouseWheel="OnWheel"
+                          PreviewMouseRightButtonDown="OnPanStart"
+                          PreviewMouseRightButtonUp="OnPanEnd"
+                          PreviewMouseMove="OnMouseMove"
+                          MouseLeave="OnMouseLeave"
+                          ScrollChanged="OnScrollChanged">
+                <!-- 그림이 화면보다 작으면(맞춤 · 축소) 가운데에 — 남는 여백을 양쪽으로 나눈다 -->
+                <Grid x:Name="Board" Width="{Binding ImageWidth}" Height="{Binding ImageHeight}"
+                      HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Grid.LayoutTransform>
+                        <ScaleTransform ScaleX="{Binding Zoom}" ScaleY="{Binding Zoom}" />
+                    </Grid.LayoutTransform>
+
+                    <!-- 원본 그대로 또는 축소본 — 판 크기로 늘인다. 확대하면 픽셀이 칸으로 보이게(흐리게 섞지 않는다) -->
+                    <Image Source="{Binding Display}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor" />
+
+                    <!-- 선명 조각 — 보이는 영역만 원본 해상도. 원본 좌표 그대로 덮는다 -->
+                    <Canvas>
+                        <Image Source="{Binding SharpImage}" Canvas.Left="{Binding SharpX}" Canvas.Top="{Binding SharpY}"
+                               Width="{Binding SharpWidth}" Height="{Binding SharpHeight}"
+                               Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                    </Canvas>
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</UserControl>

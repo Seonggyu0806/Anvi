@@ -4,6 +4,7 @@
     <ProjectReference Include="..\DiePipeline.Core\DiePipeline.Core.csproj" />
     <ProjectReference Include="..\DiePipeline.Cv\DiePipeline.Cv.csproj" />
     <ProjectReference Include="..\DiePipeline.Editor\DiePipeline.Editor.csproj" />
+    <ProjectReference Include="..\DiePipeline.Viewer\DiePipeline.Viewer.csproj" />
     <ProjectReference Include="..\DiePipeline.Wafer\DiePipeline.Wafer.csproj" />
   </ItemGroup>
 

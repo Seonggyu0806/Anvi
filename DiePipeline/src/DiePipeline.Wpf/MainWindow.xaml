@@ -114,7 +114,7 @@
                                  IsChecked="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceChecked}, ConverterParameter={x:Static vm:Workspace.DieOverlay}}" />
                 </StackPanel>
             </Border>
-            <Border Style="{StaticResource WorkspaceGroup}" BorderThickness="0" Margin="0">
+            <Border Style="{StaticResource WorkspaceGroup}">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource WorkspaceGroupCaption}" Text="웨이퍼" />
                     <RadioButton Style="{StaticResource WorkspaceSegment}" Content="블록 에디터"
@@ -124,6 +124,13 @@
                     <RadioButton Style="{StaticResource WorkspaceSegment}" Content="옵션 검사"
                                  ToolTip="레시피 파일 없이 입력칸(격자 · 원판 · 정렬 · 수동 지정)으로 검사 — 다이 블록 에디터의 레시피를 쓴다"
                                  IsChecked="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceChecked}, ConverterParameter={x:Static vm:Workspace.WaferOptions}}" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource WorkspaceGroup}" BorderThickness="0" Margin="0">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource WorkspaceGroupCaption}" Text="원본" />
+                    <RadioButton Style="{StaticResource WorkspaceSegment}" Content="이미지 뷰어"
+                                 IsChecked="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceChecked}, ConverterParameter={x:Static vm:Workspace.Viewer}}" />
                 </StackPanel>
             </Border>
         </StackPanel>
@@ -567,6 +574,11 @@
             </DataGrid>
         </GroupBox>
     </Grid>
+
+    <!-- ═════════════════════════ 원본 · 이미지 뷰어 ═════════════════════════ -->
+    <!-- ★ DataContext 를 뷰어로 바꾸므로, 보이기는 창(MainViewModel)의 값을 직접 본다 -->
+    <views:ImageViewerView DataContext="{Binding Viewer}"
+                           Visibility="{Binding DataContext.SelectedWorkspace, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource WorkspaceVisible}, ConverterParameter={x:Static vm:Workspace.Viewer}}" />
 
     <!-- ═════════════════════════ 웨이퍼 · 옵션 검사(이전 '웨이퍼' 탭) ═════════════════════════ -->
         <Grid DataContext="{Binding Wafer}"

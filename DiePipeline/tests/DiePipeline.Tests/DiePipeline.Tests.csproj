@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\DiePipeline.Cv\DiePipeline.Cv.csproj" />
     <ProjectReference Include="..\..\src\DiePipeline.Editor\DiePipeline.Editor.csproj" />
+    <ProjectReference Include="..\..\src\DiePipeline.Viewer\DiePipeline.Viewer.csproj" />
     <ProjectReference Include="..\..\src\DiePipeline.Wafer\DiePipeline.Wafer.csproj" />
   </ItemGroup>
 

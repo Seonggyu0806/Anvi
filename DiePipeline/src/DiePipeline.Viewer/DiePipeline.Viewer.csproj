@@ -1,0 +1,11 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<!--
+    ★ 원본 이미지 뷰어의 계산만 — 화면 ↔ 원본 좌표 · 확대 · 축소본 배율 · 보이는 영역.
+      교수님 Viewer.Core 와 같은 자리. WPF 도 OpenCV 도 모른다 — 화면 없이 시험된다.
+  -->
+	<ItemGroup>
+		<ProjectReference Include="..\DiePipeline.Core\DiePipeline.Core.csproj" />
+	</ItemGroup>
+
+</Project>
