@@ -20,8 +20,14 @@ public enum Workspace
     /// <summary>다이 · 블록 에디터 — die 레시피 편집 + 미리보기.</summary>
     DieEditor,
 
+    /// <summary>다이 · 오버레이 — 미리보기 결과를 크게: 배경(단계 그림) + 결함 네모 + 결함 목록.</summary>
+    DieOverlay,
+
     /// <summary>웨이퍼 · 블록 에디터 — 웨이퍼 레시피 편집 + 실행.</summary>
     WaferEditor,
+
+    /// <summary>웨이퍼 · 오버레이 — 웨이퍼 에디터의 마지막 실행을 개요 그림 위에: die 테두리 + 결함 네모 + 결함 목록.</summary>
+    WaferOverlay,
 
     /// <summary>웨이퍼 · 옵션 검사 — 레시피 파일 없이 입력칸으로 검사(이전 '웨이퍼' 탭).</summary>
     WaferOptions,
@@ -43,6 +49,13 @@ public sealed class MainViewModel : ObservableObject
 
     private Workspace _selectedWorkspace = Workspace.DieEditor;
     private string _previewSummary = "아직 안 돌렸습니다";
+    private PreviewItem? _overlayBackground;
+
+    // ★ 마지막으로 고른 배경의 이름. 미리보기를 다시 돌리면 배경 목록을 비웠다 채우는데, 비우는 순간 콤보가
+    //   고른 값을 null 로 되돌려 보낸다 — 그래서 고른 값과 따로 이름을 들고 있다가 다시 찾는다.
+    private string? _overlayBackgroundKey;
+    private Defect? _selectedDefect;
+    private bool _hasPreview;
     private BitmapSource? _inspected;
     private double _inspectedWidth = 1;
     private double _inspectedHeight = 1;
@@ -79,6 +92,13 @@ public sealed class MainViewModel : ObservableObject
 
         RunPreviewCommand = new RelayCommand(RunPreview);
 
+        // 미리보기 썸네일 더블클릭 → 그 단계 그림을 배경으로 다이 오버레이(교수님 앱과 같다).
+        OpenOverlayCommand = new RelayCommand<PreviewItem>(item =>
+        {
+            SelectedOverlayBackground = OverlayBackgrounds.FirstOrDefault(b => b.Key == item.Key) ?? SelectedOverlayBackground;
+            SelectedWorkspace = Workspace.DieOverlay;
+        });
+
         // ★ 웨이퍼 탭은 die 탭의 '지금 그래프' 를 레시피로 쓴다 — 따로 들고 있으면 둘이 갈라진다.
         //   내보내기와 같은 길(검증 강제)을 탄다 — 검증에 막히면 웨이퍼 검사도 안 돌아간다.
         Wafer = new WaferViewModel(registry, Editor.ExportRecipe);
@@ -112,6 +132,57 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<Defect> Defects { get; } = [];
 
     public ICommand RunPreviewCommand { get; }
+
+    // ───────────────────────── 다이 오버레이 ─────────────────────────
+
+    /// <summary>미리보기를 한 번이라도 돌렸나 — 아니면 오버레이 칸에 '먼저 미리보기를 돌리세요' 를 띄운다.</summary>
+    public bool HasPreview
+    {
+        get => _hasPreview;
+        private set => SetField(ref _hasPreview, value);
+    }
+
+    /// <summary>오버레이 배경 후보 — 검사 조각 + 미리보기의 단계 그림들. 모두 같은 크기(원본 픽셀)라 네모가 그대로 얹힌다.</summary>
+    public ObservableCollection<PreviewItem> OverlayBackgrounds { get; } = [];
+
+    public PreviewItem? SelectedOverlayBackground
+    {
+        get => _overlayBackground;
+        set
+        {
+            if (SetField(ref _overlayBackground, value) && value is not null)
+            {
+                _overlayBackgroundKey = value.Key;
+            }
+        }
+    }
+
+    /// <summary>결함 네모 — 미리보기의 결함과 하나씩 짝.</summary>
+    public ObservableCollection<OverlayBoxViewModel> DefectBoxes { get; } = [];
+
+    /// <summary>고른 결함 — 결함 목록과 네모가 같이 본다. 네모를 누르면 여기가 바뀌고, 여기가 바뀌면 네모가 강조된다.</summary>
+    public Defect? SelectedDefect
+    {
+        get => _selectedDefect;
+        set
+        {
+            if (SetField(ref _selectedDefect, value))
+            {
+                foreach (OverlayBoxViewModel box in DefectBoxes)
+                {
+                    box.IsSelected = ReferenceEquals(box.Item, value);
+                }
+            }
+        }
+    }
+
+    /// <summary>네모 선 두께 · 번호 글자 크기(원본 픽셀) — 그림이 화면에 맞게 늘어나도 적당한 굵기로 보이게 그림 크기에 맞춘다.</summary>
+    public double OverlayLine => Math.Max(InspectedWidth, InspectedHeight) / 400;
+
+    public double OverlayLabelSize => Math.Max(InspectedWidth, InspectedHeight) / 30;
+
+    /// <summary>미리보기 썸네일 더블클릭 — 그 단계 그림을 배경으로 오버레이 칸을 연다.</summary>
+    public ICommand OpenOverlayCommand { get; }
 
     public string PreviewSummary
     {
@@ -167,6 +238,7 @@ public sealed class MainViewModel : ObservableObject
 
         PreviewItems.Clear();
         Defects.Clear();
+        ClearOverlay();
 
         try
         {
@@ -191,6 +263,8 @@ public sealed class MainViewModel : ObservableObject
             InspectedWidth = result.Width;
             InspectedHeight = result.Height;
 
+            FillOverlay(result);
+
             PreviewSummary = $"결함 {result.Defects.Count}개 · 중간 이미지 {result.Items.Count}장 · " +
                              $"{clock.Elapsed.TotalMilliseconds:F1} ms";
             Editor.StatusText = "미리보기 갱신됨";
@@ -203,6 +277,46 @@ public sealed class MainViewModel : ObservableObject
             Editor.ShowRunError(error.Message);
             Editor.StatusText = "미리보기 실패";
         }
+    }
+
+    /// <summary>
+    /// 오버레이를 새 미리보기 결과로 채운다. ★ 고른 배경은 이름으로 다시 찾는다 — 값을 고칠 때마다 미리보기가 다시 돌아도
+    ///   보던 단계 그림이 그대로 보이게.
+    /// </summary>
+    private void FillOverlay(PreviewResult result)
+    {
+        string? keep = _overlayBackgroundKey;
+
+        OverlayBackgrounds.Add(new PreviewItem("검사 조각", result.Inspected));
+
+        foreach (PreviewItem item in result.Items)
+        {
+            OverlayBackgrounds.Add(item);
+        }
+
+        SelectedOverlayBackground = OverlayBackgrounds.FirstOrDefault(b => b.Key == keep) ?? OverlayBackgrounds[0];
+
+        foreach (Defect defect in result.Defects)
+        {
+            BoundingBox b = defect.Bounds;
+            DefectBoxes.Add(new OverlayBoxViewModel(
+                defect, b.X, b.Y, b.Width, b.Height,
+                defect.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                $"#{defect.Id} · ({b.X}, {b.Y}) {b.Width}×{b.Height} · 면적 {defect.Area}",
+                item => SelectedDefect = (Defect)item));
+        }
+
+        OnPropertyChanged(nameof(OverlayLine));
+        OnPropertyChanged(nameof(OverlayLabelSize));
+        HasPreview = true;
+    }
+
+    private void ClearOverlay()
+    {
+        SelectedDefect = null;
+        DefectBoxes.Clear();
+        OverlayBackgrounds.Clear();
+        HasPreview = false;
     }
 
     private static EditorGraph StandardGraph()

@@ -42,6 +42,9 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
     private string _alignmentText = string.Empty;
     private string? _noteText;
     private int _mapCols = 1;
+    private WaferDefect? _selectedDefect;
+    private double _overviewPixel = 1;
+    private bool _hasResult;
 
     public WaferEditorViewModel()
     {
@@ -97,6 +100,50 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
 
     /// <summary>결함 표 — 샘플링 <b>후</b>(보여 줄 것). 맵의 칸 숫자는 샘플링 전이다.</summary>
     public ObservableCollection<WaferDefect> Defects { get; } = [];
+
+    // ───────────────────────── 웨이퍼 오버레이 ─────────────────────────
+
+    /// <summary>오버레이 바탕 — 지금 사진의 개요 그림(원본은 통째로 못 올린다). 사진이 없으면 null.</summary>
+    public System.Windows.Media.Imaging.BitmapSource? OverviewImage => _scene?.Overview;
+
+    /// <summary>원본 픽셀 크기 — 오버레이 판의 크기. die 테두리 · 결함 네모가 이 자로 적혀 있다.</summary>
+    public double ImageWidth => _scene?.Width ?? 1;
+
+    public double ImageHeight => _scene?.Height ?? 1;
+
+    /// <summary>선 두께 · 글자 크기(원본 픽셀) — 개요 그림 1~2 px 로 보이게.</summary>
+    public double OverlayLine => 1.5 * _overviewPixel;
+
+    public double OverlayLabelSize => 12 * _overviewPixel;
+
+    /// <summary>마지막 실행 결과가 있나 — 없으면 오버레이 칸에 '먼저 실행하세요' 를 띄운다.</summary>
+    public bool HasResult
+    {
+        get => _hasResult;
+        private set => SetField(ref _hasResult, value);
+    }
+
+    /// <summary>die 테두리 — 색은 맵 칸과 같은 상태.</summary>
+    public ObservableCollection<OverlayDie> OverlayDies { get; } = [];
+
+    /// <summary>결함 네모 — 결함 표(추린 뒤)와 하나씩 짝.</summary>
+    public ObservableCollection<OverlayBoxViewModel> DefectBoxes { get; } = [];
+
+    /// <summary>고른 결함 — 실행 칸의 결함 표 · 오버레이의 결함 표 · 네모가 같이 본다.</summary>
+    public WaferDefect? SelectedDefect
+    {
+        get => _selectedDefect;
+        set
+        {
+            if (SetField(ref _selectedDefect, value))
+            {
+                foreach (OverlayBoxViewModel box in DefectBoxes)
+                {
+                    box.IsSelected = ReferenceEquals(box.Item, value);
+                }
+            }
+        }
+    }
 
     public int MapCols
     {
@@ -191,6 +238,15 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
     {
         _scene?.Dispose();
         _scene = scene;
+
+        // 개요 그림 1 px 이 원본 몇 px 인가 — 네모 최소 크기 · 선 두께가 여기서 나온다.
+        _overviewPixel = scene.Width / (double)Math.Max(1, scene.Overview.PixelWidth);
+        OnPropertyChanged(nameof(OverviewImage));
+        OnPropertyChanged(nameof(ImageWidth));
+        OnPropertyChanged(nameof(ImageHeight));
+        OnPropertyChanged(nameof(OverlayLine));
+        OnPropertyChanged(nameof(OverlayLabelSize));
+
         ClearResults();
         SummaryText = "아직 안 돌렸습니다";
         RaiseCommandStates();
@@ -298,6 +354,25 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
             Defects.Add(defect);
         }
 
+        WaferOverlayLayout layout = WaferOverlay.Of(result, _overviewPixel);
+
+        foreach (OverlayDie die in layout.Dies)
+        {
+            OverlayDies.Add(die);
+        }
+
+        foreach (OverlayDefect box in layout.Defects)
+        {
+            WaferDefect d = box.Defect;
+            DefectBoxes.Add(new OverlayBoxViewModel(
+                d, box.X, box.Y, box.Width, box.Height,
+                d.Defect.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                $"die(c{d.DieCol},r{d.DieRow}) {d.Zone} #{d.Defect.Id} · 웨이퍼 ({d.AbsX:F1}, {d.AbsY:F1}) · {d.Defect.Bounds.Width}×{d.Defect.Bounds.Height}",
+                item => SelectedDefect = (WaferDefect)item));
+        }
+
+        HasResult = true;
+
         int e1 = result.Grid.Dies.Count(d => d.Zone == WaferZone.E1);
         int e0 = result.Grid.Dies.Count(d => d.Zone == WaferZone.E0);
         int outside = result.Grid.Dies.Count(d => d.Zone == WaferZone.Outside);
@@ -308,6 +383,10 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
 
     private void ClearResults()
     {
+        SelectedDefect = null;
+        DefectBoxes.Clear();
+        OverlayDies.Clear();
+        HasResult = false;
         MapCells.Clear();
         Defects.Clear();
         AlignmentText = string.Empty;

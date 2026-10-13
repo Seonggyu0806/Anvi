@@ -15,6 +15,37 @@
         <BooleanToVisibilityConverter x:Key="ShowWhenTrue" />
         <conv:WorkspaceToCheckedConverter x:Key="WorkspaceChecked" />
         <conv:WorkspaceToVisibilityConverter x:Key="WorkspaceVisible" />
+        <conv:InverseBoolToVisibilityConverter x:Key="HideWhenTrue" />
+
+        <!--
+            오버레이 결함 네모 — 다이 · 웨이퍼 오버레이가 같이 쓴다. 누르면 그 결함을 고르고, 골라지면 노랗게 칠한다.
+            ★ 선 두께 · 글자 크기는 오버레이 주인(ItemsControl 의 DataContext)이 원본 픽셀로 정한다 — 그림 크기가 제각각이라.
+        -->
+        <DataTemplate x:Key="OverlayBoxTemplate">
+            <Button Command="{Binding SelectCommand}" ToolTip="{Binding Tooltip}" Cursor="Hand"
+                    Width="{Binding Width}" Height="{Binding Height}">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Grid Background="Transparent">
+                            <ContentPresenter />
+                        </Grid>
+                    </ControlTemplate>
+                </Button.Template>
+                <Grid>
+                    <Rectangle x:Name="Box" Stroke="#E53935"
+                               StrokeThickness="{Binding DataContext.OverlayLine, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                    <TextBlock Text="{Binding Label}" Foreground="#FFD740" FontWeight="Bold"
+                               FontSize="{Binding DataContext.OverlayLabelSize, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                               HorizontalAlignment="Left" VerticalAlignment="Top" />
+                </Grid>
+            </Button>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter TargetName="Box" Property="Stroke" Value="#FFD740" />
+                    <Setter TargetName="Box" Property="Fill" Value="#55FFD740" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
 
         <!--
             작업공간 바 — 교수님 앱과 같은 모양: 묶음 이름(진한 글자) + 칸 단추, 묶음 사이는 얇은 세로선.
@@ -79,6 +110,8 @@
                     <TextBlock Style="{StaticResource WorkspaceGroupCaption}" Text="다이" />
                     <RadioButton Style="{StaticResource WorkspaceSegment}" Content="블록 에디터"
                                  IsChecked="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceChecked}, ConverterParameter={x:Static vm:Workspace.DieEditor}}" />
+                    <RadioButton Style="{StaticResource WorkspaceSegment}" Content="오버레이"
+                                 IsChecked="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceChecked}, ConverterParameter={x:Static vm:Workspace.DieOverlay}}" />
                 </StackPanel>
             </Border>
             <Border Style="{StaticResource WorkspaceGroup}" BorderThickness="0" Margin="0">
@@ -86,6 +119,8 @@
                     <TextBlock Style="{StaticResource WorkspaceGroupCaption}" Text="웨이퍼" />
                     <RadioButton Style="{StaticResource WorkspaceSegment}" Content="블록 에디터"
                                  IsChecked="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceChecked}, ConverterParameter={x:Static vm:Workspace.WaferEditor}}" />
+                    <RadioButton Style="{StaticResource WorkspaceSegment}" Content="오버레이"
+                                 IsChecked="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceChecked}, ConverterParameter={x:Static vm:Workspace.WaferOverlay}}" />
                     <RadioButton Style="{StaticResource WorkspaceSegment}" Content="옵션 검사"
                                  ToolTip="레시피 파일 없이 입력칸(격자 · 원판 · 정렬 · 수동 지정)으로 검사 — 다이 블록 에디터의 레시피를 쓴다"
                                  IsChecked="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceChecked}, ConverterParameter={x:Static vm:Workspace.WaferOptions}}" />
@@ -167,7 +202,10 @@
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <StackPanel Margin="4" Width="96">
+                                            <!-- 더블클릭 → 이 단계 그림을 배경으로 다이 오버레이 -->
+                                            <StackPanel Margin="4" Width="96" Background="Transparent" Cursor="Hand"
+                                                        ToolTip="더블클릭 — 오버레이에서 크게"
+                                                        MouseLeftButtonDown="OnThumbnailMouseDown">
                                                 <TextBlock Text="{Binding Key}" FontSize="10"
                                                            TextTrimming="CharacterEllipsis" ToolTip="{Binding Key}" />
                                                 <Image Source="{Binding Image}" Height="96" Stretch="Uniform" />
@@ -239,6 +277,71 @@
             </views:GraphEditorView.SideContent>
         </views:GraphEditorView>
     </DockPanel>
+
+    <!-- ═════════════════════════ 다이 · 오버레이 ═════════════════════════ -->
+    <!--
+        ★ 미리보기 결과를 크게 — 배경(검사 조각 · 단계 그림) 위에 결함 네모. 미리보기를 따로 돌리지 않고 블록 에디터의 결과를 그대로 쓴다.
+          그림 크기(원본 픽셀)의 판에 배경을 늘여 깔고 네모를 좌표 그대로 얹는다 — 늘이고 줄이는 건 Viewbox.
+    -->
+    <Grid Visibility="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceVisible}, ConverterParameter={x:Static vm:Workspace.DieOverlay}}" Margin="6">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="5" />
+            <ColumnDefinition Width="340" MinWidth="240" />
+        </Grid.ColumnDefinitions>
+
+        <DockPanel Grid.Column="0">
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="2,0,2,6">
+                <TextBlock Text="배경:" VerticalAlignment="Center" Margin="0,0,4,0" />
+                <ComboBox ItemsSource="{Binding OverlayBackgrounds}" SelectedItem="{Binding SelectedOverlayBackground}"
+                          DisplayMemberPath="Key" MinWidth="160" />
+                <TextBlock Text="{Binding PreviewSummary}" VerticalAlignment="Center" Foreground="Gray" Margin="10,0,0,0" />
+            </StackPanel>
+
+            <Grid>
+                <TextBlock Text="다이 · 블록 에디터에서 '미리보기 실행' 을 누르면 결과가 여기에 크게 보입니다"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="Gray"
+                           Visibility="{Binding HasPreview, Converter={StaticResource HideWhenTrue}}" />
+                <Border Background="#1E2630" ClipToBounds="True"
+                        Visibility="{Binding HasPreview, Converter={StaticResource ShowWhenTrue}}">
+                    <Viewbox Stretch="Uniform" Margin="6">
+                        <Grid Width="{Binding InspectedWidth}" Height="{Binding InspectedHeight}">
+                            <Image Source="{Binding SelectedOverlayBackground.Image}" Stretch="Fill"
+                                   RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                            <ItemsControl ItemsSource="{Binding DefectBoxes}" ItemTemplate="{StaticResource OverlayBoxTemplate}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <Canvas />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="ContentPresenter">
+                                        <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                        <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                            </ItemsControl>
+                        </Grid>
+                    </Viewbox>
+                </Border>
+            </Grid>
+        </DockPanel>
+
+        <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#E5E7EB" />
+
+        <!-- 결함 목록 — 고르면 네모가 강조되고, 네모를 누르면 여기 줄이 골라진다 -->
+        <GroupBox Grid.Column="2" Header="결함">
+            <DataGrid ItemsSource="{Binding Defects}" SelectedItem="{Binding SelectedDefect}" AutoGenerateColumns="False"
+                      IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal" FontSize="11">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="#" Binding="{Binding Id}" Width="36" />
+                    <DataGridTextColumn Header="위치" Binding="{Binding Bounds}" Width="*" />
+                    <DataGridTextColumn Header="면적" Binding="{Binding Area}" Width="52" />
+                    <DataGridTextColumn Header="밝기" Binding="{Binding MeanIntensity, StringFormat=F2}" Width="48" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </GroupBox>
+    </Grid>
 
     <!-- ═════════════════════════ 웨이퍼 · 블록 에디터 ═════════════════════════ -->
     <!--
@@ -355,8 +458,8 @@
                         </ScrollViewer>
 
                         <!-- 결함 표 — 샘플링 후(보여 줄 것). 웨이퍼 좌표는 정렬을 적용한 절대 좌표 -->
-                        <DataGrid Grid.Column="1" ItemsSource="{Binding Defects}" AutoGenerateColumns="False"
-                                  IsReadOnly="True" HeadersVisibility="Column" FontSize="11" Margin="6,0,0,0">
+                        <DataGrid Grid.Column="1" ItemsSource="{Binding Defects}" SelectedItem="{Binding SelectedDefect}"
+                                  AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" FontSize="11" Margin="6,0,0,0">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="열" Binding="{Binding DieCol}" Width="36" />
                                 <DataGridTextColumn Header="행" Binding="{Binding DieRow}" Width="36" />
@@ -372,6 +475,98 @@
             </GroupBox>
         </Grid>
     </DockPanel>
+
+    <!-- ═════════════════════════ 웨이퍼 · 오버레이 ═════════════════════════ -->
+    <!--
+        ★ 웨이퍼 에디터의 마지막 실행을 개요 그림 위에 — die 테두리(맵과 같은 색) + 결함 네모(개요 기준 최소 8 px).
+          좌표는 전부 원본 픽셀. 개요 그림을 원본 크기 판에 늘여 깔고 그대로 얹는다(다이 오버레이와 같은 수법).
+    -->
+    <Grid DataContext="{Binding WaferEditor}" Margin="6"
+          Visibility="{Binding DataContext.SelectedWorkspace, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource WorkspaceVisible}, ConverterParameter={x:Static vm:Workspace.WaferOverlay}}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="5" />
+            <ColumnDefinition Width="400" MinWidth="260" />
+        </Grid.ColumnDefinitions>
+
+        <DockPanel Grid.Column="0">
+            <StackPanel DockPanel.Dock="Top" Margin="2,0,2,6">
+                <TextBlock Text="{Binding SummaryText}" FontWeight="Bold" />
+                <TextBlock Text="{Binding ImageText}" Foreground="Gray" />
+                <TextBlock Text="레시피가 바뀌었습니다 — 아래 결과는 바뀌기 전 레시피의 것입니다"
+                           Foreground="#B45309" Visibility="{Binding IsStale, Converter={StaticResource ShowWhenTrue}}" />
+            </StackPanel>
+
+            <Grid>
+                <TextBlock Text="웨이퍼 · 블록 에디터에서 '▶ 실행' 을 누르면 결과가 여기에 그림으로 보입니다"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="Gray"
+                           Visibility="{Binding HasResult, Converter={StaticResource HideWhenTrue}}" />
+                <Border Background="#1E2630" ClipToBounds="True"
+                        Visibility="{Binding HasResult, Converter={StaticResource ShowWhenTrue}}">
+                    <Viewbox Stretch="Uniform" Margin="6">
+                        <Grid Width="{Binding ImageWidth}" Height="{Binding ImageHeight}">
+                            <Image Source="{Binding OverviewImage}" Stretch="Fill" />
+
+                            <!-- die 테두리 — 색 = 맵 칸 상태 -->
+                            <ItemsControl ItemsSource="{Binding OverlayDies}" IsHitTestVisible="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <Canvas />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="ContentPresenter">
+                                        <Setter Property="Canvas.Left" Value="{Binding Area.X}" />
+                                        <Setter Property="Canvas.Top" Value="{Binding Area.Y}" />
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Rectangle Width="{Binding Area.Width}" Height="{Binding Area.Height}"
+                                                   Stroke="{Binding State, Converter={StaticResource MapBrush}}"
+                                                   StrokeThickness="{Binding DataContext.OverlayLine, RelativeSource={RelativeSource AncestorType=ItemsControl}}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- 결함 네모 — 누르면 그 결함을 고른다 -->
+                            <ItemsControl ItemsSource="{Binding DefectBoxes}" ItemTemplate="{StaticResource OverlayBoxTemplate}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <Canvas />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="ContentPresenter">
+                                        <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                        <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                            </ItemsControl>
+                        </Grid>
+                    </Viewbox>
+                </Border>
+            </Grid>
+        </DockPanel>
+
+        <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#E5E7EB" />
+
+        <!-- 결함 목록 — 실행 칸의 결함 표와 같은 목록 · 같은 고름 -->
+        <GroupBox Grid.Column="2" Header="결함(샘플링 후)">
+            <DataGrid ItemsSource="{Binding Defects}" SelectedItem="{Binding SelectedDefect}" AutoGenerateColumns="False"
+                      IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal" FontSize="11">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="열" Binding="{Binding DieCol}" Width="36" />
+                    <DataGridTextColumn Header="행" Binding="{Binding DieRow}" Width="36" />
+                    <DataGridTextColumn Header="존" Binding="{Binding Zone}" Width="40" />
+                    <DataGridTextColumn Header="#" Binding="{Binding Defect.Id}" Width="36" />
+                    <DataGridTextColumn Header="웨이퍼 X" Binding="{Binding AbsX, StringFormat=F1}" Width="70" />
+                    <DataGridTextColumn Header="웨이퍼 Y" Binding="{Binding AbsY, StringFormat=F1}" Width="70" />
+                    <DataGridTextColumn Header="면적" Binding="{Binding Defect.Area}" Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </GroupBox>
+    </Grid>
 
     <!-- ═════════════════════════ 웨이퍼 · 옵션 검사(이전 '웨이퍼' 탭) ═════════════════════════ -->
         <Grid DataContext="{Binding Wafer}"
