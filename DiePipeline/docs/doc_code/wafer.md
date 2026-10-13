@@ -38,7 +38,7 @@ JSON 레시피는 노드를 어떤 순서로 놓을지 적는 파일인데, die 
 
 ---
 
-## 3. 파일 지도 — 17개
+## 3. 파일 지도 — 19개
 
 ```
 DiePipeline.Wafer/
@@ -58,7 +58,9 @@ DiePipeline.Wafer/
  │   ├ WaferSampler.cs           결과가 많을 때 추리기
  │   ├ DefectWindow.cs           결함 하나를 원본에서 볼 창 (화면의 '결함 원본 보기')
  │   ├ WaferInspection.cs        ★ 위 전부를 꿰는 흐름 + 격자 경고 · 원판 마스크 · 정렬 창
- │   └ WaferRecipeRunner.cs      ★ 웨이퍼 레시피를 토막 내서 돌린다 — 속은 WaferInspection
+ │   ├ WaferRecipeRunner.cs      ★ 웨이퍼 레시피를 토막 내서 돌린다 — 속은 WaferInspection
+ │   ├ WaferRecipePaths.cs       레시피를 다른 폴더에 저장할 때 안의 경로를 새 폴더 기준으로 고쳐 적기
+ │   └ WaferMap.cs               검사 결과 → 웨이퍼 맵 칸(상태 · 결함 수). 화면이 그리기만 한다
  └ Processing/                   웨이퍼 레시피의 블록 (교수님과 같은 이름 · 자리)
      ├ WaferNodes.cs             자세 계산 · die 전부 검사(경계) · 웨이퍼 좌표 · 결과 추리기
      ├ WaferFactories.cs         위 넷의 설명서 — 파라미터 · 실행 전 검사
@@ -121,7 +123,8 @@ DiePipeline.Wafer/
 |---|---|
 | 입구는 둘, 속은 하나 | 명령행 옵션 · 화면 입력 · 레시피 파일이 모두 `WaferInspection` 을 지난다. 정렬 가드 · 격자 · die 반복이 한 곳이다. 두 입구가 같은 답인지 시험이 본다 |
 | 값은 한 곳에 | 표식 설계 자리 · 대략 원점(`firstDieX/Y`) · 판정 기준은 `SolveAlignment` 에만. 격자 · 원판 · 수동 지정 · 조각 경로는 `InspectDies` 에만. 교수님 견본은 표식 자리를 두 블록에 적는다 |
-| 경로 | 안에 적힌 die 레시피 · 조각 경로는 **레시피 파일이 있는 폴더 기준**(교수님 CLI 와 같다). 절대 경로도 된다 |
+| 경로 | 안에 적힌 die 레시피 · 조각 경로는 **레시피 파일이 있는 폴더 기준**(교수님 CLI 와 같다). 절대 경로도 된다. 푸는 규칙은 `PathIn` 한 곳 |
+| 화면 입구 | 웨이퍼 에디터는 아직 파일로 안 쓴 그래프를 돌린다 → `RunIn(레시피, 폴더)`. `RunFile` 도 이걸 거친다. 다른 폴더에 저장하면 `WaferRecipePaths.Rebase` 가 `e1Recipe` · `e0Recipe` · `features[].template` 을 새 폴더 기준으로 고쳐 적는다 |
 | 실행 전에 막는다 | `InspectDies` 가 0개·2개 · 어디에도 안 이어진 블록 · 끝 블록이 2개 · 조각이 2개 → die 를 하나도 돌기 전에 거부(끝값 2) |
 | 섞지 않는다 | `--recipe` 는 `-i` 말고 다른 옵션과 같이 못 쓴다 — 어느 값이 쓰였는지 결과에서 안 보인다 |
 | 이름 | `edgeExclusionPx` = 원판 가장자리 여유(px, 교수님 문서의 뜻) · `edgeRings` = 테두리 겹 수. 우리에게만 있는 것: `circle` · `zones` · `searchPaddingPx` · `neighbors` · `dieWidth/Height` · `firstDieX/Y` |
@@ -259,7 +262,6 @@ diepipe wafer -i out/wafer.bmp --recipe samples/wafer/demo.wafer.json
 | 없는 것 | 무슨 일이 안 되나 |
 |---|---|
 | **`warp read`** ★ | die 를 펴서 못 읽는다 → 기울기 **0.05°** 까지만. 붙이는 날 그 가드를 **같이** 지운다 |
-| **화면 블록 편집기** | 웨이퍼 레시피를 화면에서 블록으로 못 짠다. 파일을 손으로 쓰고 명령행으로 돌린다(면담에서 묻는다) |
 | **이벤트** | die 하나 끝날 때마다 알릴 길이 없다 → 진행률이 안 찬다 |
 | **`result.json`+provenance** | 결과를 파일로 못 넘기고, "어떤 레시피로 나온 값인가" 를 못 적는다 |
 | **`Cluster`** | 흩어진 점 20개를 "긁힌 자국 1개" 로 못 묶는다 |
@@ -280,8 +282,8 @@ diepipe wafer -i out/wafer.bmp --recipe samples/wafer/demo.wafer.json
 
 | | |
 |---|---|
-| 웨이퍼 층 파일 | **17개** (사진을 만지는 건 2개) |
-| 전체 테스트 | **584개** |
+| 웨이퍼 층 파일 | **19개** (사진을 만지는 건 2개) |
+| 전체 테스트 | **618개** |
 | 합성 4×3 · 12 die | **35 ms** (die 하나 2.9 ms) |
 | 웨이퍼 레시피 블록 | **5종** (표식 찾기는 Cv 층) |
 | warp 없이 믿는 기울기 | **0.05°** |
