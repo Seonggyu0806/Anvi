@@ -13,6 +13,21 @@ using DiePipeline.Wpf.Preview;
 namespace DiePipeline.Wpf.ViewModels;
 
 /// <summary>
+/// 작업공간 — 창 맨 위 바의 칸. 교수님 앱과 같은 묶음(다이 · 웨이퍼 · 원본)으로 늘어선다.
+/// </summary>
+public enum Workspace
+{
+    /// <summary>다이 · 블록 에디터 — die 레시피 편집 + 미리보기.</summary>
+    DieEditor,
+
+    /// <summary>웨이퍼 · 블록 에디터 — 웨이퍼 레시피 편집 + 실행.</summary>
+    WaferEditor,
+
+    /// <summary>웨이퍼 · 옵션 검사 — 레시피 파일 없이 입력칸으로 검사(이전 '웨이퍼' 탭).</summary>
+    WaferOptions,
+}
+
+/// <summary>
 /// die 탭 — 블록 편집기(<see cref="GraphEditorViewModel"/>) + 미리보기.
 ///
 /// ★ 편집(팔레트 · 블록 · 선 · 속성 · 검증 · 열기/내보내기)은 <see cref="Editor"/> 가 한다 — 웨이퍼 편집 탭과 같은 부품이다.
@@ -26,6 +41,7 @@ public sealed class MainViewModel : ObservableObject
     private static readonly string[] ContextInputs =
         [ReservedContext.Roi, ReservedContext.ChipRegions, ReservedContext.WaferMask];
 
+    private Workspace _selectedWorkspace = Workspace.DieEditor;
     private string _previewSummary = "아직 안 돌렸습니다";
     private BitmapSource? _inspected;
     private double _inspectedWidth = 1;
@@ -68,6 +84,13 @@ public sealed class MainViewModel : ObservableObject
         Wafer = new WaferViewModel(registry, Editor.ExportRecipe);
 
         WaferEditor = new WaferEditorViewModel();
+    }
+
+    /// <summary>지금 보이는 작업공간 — 맨 위 바의 단추가 바꾼다.</summary>
+    public Workspace SelectedWorkspace
+    {
+        get => _selectedWorkspace;
+        set => SetField(ref _selectedWorkspace, value);
     }
 
     /// <summary>블록 편집기 — 웨이퍼 편집 탭과 같은 부품.</summary>

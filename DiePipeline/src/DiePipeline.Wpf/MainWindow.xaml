@@ -13,15 +13,91 @@
     <Window.Resources>
         <conv:WaferMapStateToBrushConverter x:Key="MapBrush" />
         <BooleanToVisibilityConverter x:Key="ShowWhenTrue" />
+        <conv:WorkspaceToCheckedConverter x:Key="WorkspaceChecked" />
+        <conv:WorkspaceToVisibilityConverter x:Key="WorkspaceVisible" />
+
+        <!--
+            작업공간 바 — 교수님 앱과 같은 모양: 묶음 이름(진한 글자) + 칸 단추, 묶음 사이는 얇은 세로선.
+            고른 칸 = 얇은 테두리 + 2px 떠오름(배경색 없이). 떠오름은 RenderTransform 이라 옆 단추가 밀리지 않는다.
+        -->
+        <Style x:Key="WorkspaceGroupCaption" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#232320" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,12,0" />
+        </Style>
+        <Style x:Key="WorkspaceGroup" TargetType="Border">
+            <Setter Property="BorderBrush" Value="#DEDBD2" />
+            <Setter Property="BorderThickness" Value="0,0,1,0" />
+            <Setter Property="Padding" Value="0,3,18,3" />
+            <Setter Property="Margin" Value="0,0,18,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="WorkspaceSegment" TargetType="RadioButton">
+            <Setter Property="Padding" Value="11,4" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="#232320" />
+            <Setter Property="GroupName" Value="workspace" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="bd" Background="Transparent" BorderBrush="Transparent" BorderThickness="1"
+                                CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="#DCD8CE" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="#55524B" />
+                                <Setter TargetName="bd" Property="RenderTransform">
+                                    <Setter.Value>
+                                        <TranslateTransform Y="-2" />
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <!--
-        ★ 탭 셋. die 에디터 · 웨이퍼 에디터(웨이퍼 레시피를 블록으로) · 웨이퍼(옵션으로 검사).
-          웨이퍼 탭은 die 탭의 레시피를 그대로 쓴다 — die 탭에서 고치면 웨이퍼 검사도 같이 바뀐다.
+        ★ 작업공간 — 탭 대신 맨 위 바(교수님 앱과 같다). 칸은 전부 떠 있고 고른 칸만 보인다.
+          웨이퍼 · 옵션 검사는 다이 · 블록 에디터의 레시피를 그대로 쓴다 — 거기서 고치면 옵션 검사도 같이 바뀐다.
     -->
-    <TabControl>
-    <TabItem Header="die 에디터">
     <DockPanel>
+    <Border DockPanel.Dock="Top" Background="White" BorderBrush="#E2E2E2" BorderThickness="0,0,0,1">
+        <StackPanel Orientation="Horizontal" Margin="14,8">
+            <Border Style="{StaticResource WorkspaceGroup}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource WorkspaceGroupCaption}" Text="다이" />
+                    <RadioButton Style="{StaticResource WorkspaceSegment}" Content="블록 에디터"
+                                 IsChecked="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceChecked}, ConverterParameter={x:Static vm:Workspace.DieEditor}}" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource WorkspaceGroup}" BorderThickness="0" Margin="0">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource WorkspaceGroupCaption}" Text="웨이퍼" />
+                    <RadioButton Style="{StaticResource WorkspaceSegment}" Content="블록 에디터"
+                                 IsChecked="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceChecked}, ConverterParameter={x:Static vm:Workspace.WaferEditor}}" />
+                    <RadioButton Style="{StaticResource WorkspaceSegment}" Content="옵션 검사"
+                                 ToolTip="레시피 파일 없이 입력칸(격자 · 원판 · 정렬 · 수동 지정)으로 검사 — 다이 블록 에디터의 레시피를 쓴다"
+                                 IsChecked="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceChecked}, ConverterParameter={x:Static vm:Workspace.WaferOptions}}" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </Border>
+
+    <Grid>
+
+    <!-- ═════════════════════════ 다이 · 블록 에디터 ═════════════════════════ -->
+    <DockPanel Visibility="{Binding SelectedWorkspace, Converter={StaticResource WorkspaceVisible}, ConverterParameter={x:Static vm:Workspace.DieEditor}}">
         <!--
             ★ 단축키 — die 탭 안에서만 듣는다(창 전체에 걸면 웨이퍼 탭에서 눌러도 die 그래프가 바뀐다).
               입력칸에서 글자를 지우는 Delete 는 입력칸이 먼저 받으므로 블록이 지워지지 않는다.
@@ -163,15 +239,15 @@
             </views:GraphEditorView.SideContent>
         </views:GraphEditorView>
     </DockPanel>
-    </TabItem>
 
-    <!-- ═════════════════════════ 웨이퍼 에디터 탭 ═════════════════════════ -->
+    <!-- ═════════════════════════ 웨이퍼 · 블록 에디터 ═════════════════════════ -->
     <!--
         ★ 웨이퍼 레시피(*.wafer.json)를 블록으로 짜고 그 자리에서 돌린다. 편집기는 die 탭과 같은 부품.
           세부 값(격자 · 정렬 기준 등)은 블록을 눌렀을 때만 오른쪽 속성 칸에 나온다 — 캔버스는 흐름만.
     -->
-    <TabItem Header="웨이퍼 에디터" DataContext="{Binding WaferEditor}">
-    <DockPanel>
+    <!-- ★ DataContext 를 웨이퍼 에디터로 바꾸므로, 보이기는 창(MainViewModel)의 값을 직접 본다(교수님 앱과 같은 함정) -->
+    <DockPanel DataContext="{Binding WaferEditor}"
+               Visibility="{Binding DataContext.SelectedWorkspace, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource WorkspaceVisible}, ConverterParameter={x:Static vm:Workspace.WaferEditor}}">
         <!-- 단축키 — 이 탭 안에서만(die 탭과 같은 키, 이 탭의 편집기에) -->
         <DockPanel.InputBindings>
             <KeyBinding Modifiers="Control" Key="Z" Command="{Binding Editor.UndoCommand}" />
@@ -296,11 +372,10 @@
             </GroupBox>
         </Grid>
     </DockPanel>
-    </TabItem>
 
-    <!-- ═════════════════════════ 웨이퍼 탭 ═════════════════════════ -->
-    <TabItem Header="웨이퍼" DataContext="{Binding Wafer}">
-        <Grid>
+    <!-- ═════════════════════════ 웨이퍼 · 옵션 검사(이전 '웨이퍼' 탭) ═════════════════════════ -->
+        <Grid DataContext="{Binding Wafer}"
+              Visibility="{Binding DataContext.SelectedWorkspace, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource WorkspaceVisible}, ConverterParameter={x:Static vm:Workspace.WaferOptions}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="240" />
                 <ColumnDefinition Width="*" />
@@ -756,6 +831,6 @@
                 </StackPanel>
             </ScrollViewer>
         </Grid>
-    </TabItem>
-    </TabControl>
+    </Grid>
+    </DockPanel>
 </Window>
