@@ -1,7 +1,9 @@
 ﻿using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Windows.Input;
 using DiePipeline.Core.Configuration;
+using DiePipeline.Core.Domain;
 using DiePipeline.Core.Registry;
 using DiePipeline.Cv.Imaging;
 using DiePipeline.Editor;
@@ -103,6 +105,9 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
 
     // ───────────────────────── 웨이퍼 오버레이 ─────────────────────────
 
+    /// <summary>지금 사진 — 원본 뷰어가 결함 자리로 갈 때 연다(파일이면 같은 경로, 합성이면 복사본). 없으면 null.</summary>
+    public WaferScene? Scene => _scene;
+
     /// <summary>오버레이 바탕 — 지금 사진의 개요 그림(원본은 통째로 못 올린다). 사진이 없으면 null.</summary>
     public System.Windows.Media.Imaging.BitmapSource? OverviewImage => _scene?.Overview;
 
@@ -200,6 +205,50 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
         _cancel?.Cancel();
         _scene?.Dispose();
     }
+
+    // ───────────────────────── 원본 뷰어에서 ─────────────────────────
+
+    /// <summary>지금 레시피의 die(0,0) 대략 원점(SolveAlignment 의 firstDieX/Y). 그 블록이 정확히 하나가 아니면 null.</summary>
+    public PointF? AlignmentOrigin()
+        => SolveBlock() is { } node
+            ? new PointF(Field(node, "firstDieX").NumberValue, Field(node, "firstDieY").NumberValue)
+            : null;
+
+    /// <summary>
+    /// 원본 뷰어에서 그린 정렬 특징을 SolveAlignment 블록에 쓴다 — 표식 설계 자리(<c>expected</c>) + die(0,0) 원점(<c>firstDieX/Y</c>).
+    /// ★ 속성 칸에서 고치는 것과 같은 길(검증 · '결과가 낡았다' 알림)을 탄다. 돌려준 글자는 뷰어가 띄운다.
+    /// ★ 표식 조각 그림(features)은 여기서 안 만든다 — 파일 저장이라 다음 단계(레포 밖 저장)에서 한다.
+    /// </summary>
+    public string ApplyAlignment(IReadOnlyList<PointF> expected, PointF origin)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+
+        if (SolveBlock() is not { } node)
+        {
+            int count = Editor.Nodes.Count(n => !n.IsContext && n.Type == "SolveAlignment");
+            return $"적용 못 함 — 웨이퍼 레시피에 SolveAlignment 블록이 하나여야 합니다(지금 {count}개)";
+        }
+
+        Field(node, "firstDieX").StringValue = Text(origin.X);
+        Field(node, "firstDieY").StringValue = Text(origin.Y);
+        node.Lists.First(l => l.Name == "expected").ReplaceRows(expected.Select(p => (IReadOnlyList<string>)[Text(p.X), Text(p.Y)]));
+
+        Editor.SelectedNode = node;
+        Editor.StatusText = "원본 뷰어에서 표식 설계 자리를 받았습니다";
+
+        return $"웨이퍼 에디터 {node.Id} 에 표식 자리 {expected.Count}개 · die(0,0) 원점 ({Text(origin.X)}, {Text(origin.Y)}) 를 썼습니다";
+    }
+
+    private NodeViewModel? SolveBlock()
+    {
+        NodeViewModel[] blocks = [.. Editor.Nodes.Where(n => !n.IsContext && n.Type == "SolveAlignment")];
+
+        return blocks.Length == 1 ? blocks[0] : null;
+    }
+
+    private static PropertyFieldViewModel Field(NodeViewModel node, string name) => node.Fields.First(f => f.Name == name);
+
+    private static string Text(double value) => Math.Round(value, 3).ToString(CultureInfo.InvariantCulture);
 
     // ───────────────────────── 사진 ─────────────────────────
 

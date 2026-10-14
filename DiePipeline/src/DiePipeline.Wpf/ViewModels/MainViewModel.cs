@@ -1,12 +1,18 @@
 ﻿using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using DiePipeline.Core.Configuration;
 using DiePipeline.Core.Domain;
+using DiePipeline.Core.Imaging;
 using DiePipeline.Core.Registry;
 using DiePipeline.Cv;
+using DiePipeline.Cv.Imaging;
 using DiePipeline.Editor;
+using DiePipeline.Viewer;
+using DiePipeline.Wafer.Domain;
 using DiePipeline.Wpf.Mvvm;
 using DiePipeline.Wpf.Preview;
 
@@ -66,6 +72,17 @@ public sealed class MainViewModel : ObservableObject
     // ★ 한 번이라도 미리보기를 눌렀는가. 누르기 전에는 멋대로 돌리지 않는다.
     private bool _previewOn;
 
+    // ★ 원본 뷰어에서 넘겨받은 미리보기 입력. null 이면 합성 견본으로 돈다.
+    private PreviewInput? _previewInput;
+
+    // 원본 뷰어에 지금 올라 있는 웨이퍼 사진(결함 자리로 갈 때 다시 열지 않으려고). 뷰어가 다른 원본을 열면 비운다.
+    private WaferScene? _viewerScene;
+
+    // 마지막으로 뷰어에 옮겨 준 웨이퍼 레시피의 원점 — 레시피가 그대로면 뷰어에서 고치던 값을 덮지 않는다.
+    private PointF? _syncedOrigin;
+    private readonly RelayCommand _useSyntheticCommand;
+    private readonly RelayCommand _showDefectInViewerCommand;
+
     public MainViewModel()
     {
         NodeRegistry registry = CvBackend.CreateRegistry();
@@ -93,7 +110,7 @@ public sealed class MainViewModel : ObservableObject
             }
         };
 
-        RunPreviewCommand = new RelayCommand(RunPreview);
+        RunPreviewCommand = new RelayCommand(() => RunPreview());
 
         // 미리보기 썸네일 더블클릭 → 그 단계 그림을 배경으로 다이 오버레이(교수님 앱과 같다).
         OpenOverlayCommand = new RelayCommand<PreviewItem>(item =>
@@ -109,13 +126,30 @@ public sealed class MainViewModel : ObservableObject
         WaferEditor = new WaferEditorViewModel();
 
         Viewer = new ImageViewerViewModel();
+
+        // ★ 원본 뷰어 ↔ 두 에디터. 뷰어는 에디터를 모르고, 창이 잇는다(교수님 앱과 같다).
+        Viewer.ApplyToDie = ApplyViewerRegions;
+        Viewer.ApplyToWafer = WaferEditor.ApplyAlignment;
+        Viewer.SourceChanged += OnViewerSourceChanged;
+
+        _useSyntheticCommand = new RelayCommand(UseSynthetic, () => _previewInput is not null);
+        _showDefectInViewerCommand = new RelayCommand(
+            ShowDefectInViewer, () => WaferEditor.SelectedDefect is { AbsX: not null, AbsY: not null } && WaferEditor.Scene is not null);
+
+        WaferEditor.PropertyChanged += OnWaferEditorChanged;
     }
 
     /// <summary>지금 보이는 작업공간 — 맨 위 바의 단추가 바꾼다.</summary>
     public Workspace SelectedWorkspace
     {
         get => _selectedWorkspace;
-        set => SetField(ref _selectedWorkspace, value);
+        set
+        {
+            if (SetField(ref _selectedWorkspace, value) && value == Workspace.Viewer)
+            {
+                SyncOrigin();
+            }
+        }
     }
 
     /// <summary>블록 편집기 — 웨이퍼 편집 탭과 같은 부품.</summary>
@@ -140,6 +174,21 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<Defect> Defects { get; } = [];
 
     public ICommand RunPreviewCommand { get; }
+
+    /// <summary>미리보기 입력 — 합성 견본 또는 원본 뷰어에서 넘겨받은 ROI · 정상 die.</summary>
+    public string PreviewSourceText
+        => _previewInput is { } input
+            ? $"원본 {input.Title} · ROI ({input.Roi.X}, {input.Roi.Y}) {input.Roi.Width}×{input.Roi.Height} · 정상 die {input.Chips.Count}"
+            : "합성 견본";
+
+    /// <summary>미리보기가 원본으로 도나 — '합성으로 되돌리기' 단추가 보인다.</summary>
+    public bool IsOriginalPreview => _previewInput is not null;
+
+    /// <summary>'합성으로 되돌리기' — 원본 입력을 버리고 합성 견본으로 다시 돌린다.</summary>
+    public ICommand UseSyntheticCommand => _useSyntheticCommand;
+
+    /// <summary>'원본에서 보기' — 고른 웨이퍼 결함 자리로 원본 뷰어를 옮긴다(웨이퍼 오버레이의 결함 줄 더블클릭과 같다).</summary>
+    public ICommand ShowDefectInViewerCommand => _showDefectInViewerCommand;
 
     // ───────────────────────── 다이 오버레이 ─────────────────────────
 
@@ -222,12 +271,12 @@ public sealed class MainViewModel : ObservableObject
     // ───────────────────────── 미리보기 ─────────────────────────
 
     /// <summary>
-    /// 합성 이미지로 한 번 돌려 단계별 중간 이미지를 가져온다.
+    /// 합성 이미지(또는 원본 뷰어에서 넘겨받은 ROI · 정상 die)로 한 번 돌려 단계별 중간 이미지를 가져온다. 돌았으면 true.
     ///
     /// ★ 내보내기와 <b>같은 길</b>로 레시피를 만든다. 미리보기만 따로 만들면
     ///   "화면에선 되는데 파일로 내면 안 되는" 상태가 생긴다.
     /// </summary>
-    private void RunPreview()
+    private bool RunPreview()
     {
         Recipe recipe;
 
@@ -239,7 +288,7 @@ public sealed class MainViewModel : ObservableObject
         {
             Editor.ShowIssues(error.Errors);
             Editor.StatusText = "미리보기 불가 — 검증 오류";
-            return;
+            return false;
         }
 
         _previewOn = true;
@@ -254,7 +303,9 @@ public sealed class MainViewModel : ObservableObject
             //   여기가 느리면 '부분 재실행'을 다시 넣어야 한다(week-5 §4①).
             //   필요한지는 추측하지 말고 이 숫자로 정한다.
             Stopwatch clock = Stopwatch.StartNew();
-            PreviewResult result = PreviewService.Run(Editor.Registry, recipe);
+            PreviewResult result = _previewInput is { } input
+                ? PreviewService.Run(Editor.Registry, recipe, input)
+                : PreviewService.Run(Editor.Registry, recipe);
             clock.Stop();
 
             foreach (PreviewItem item in result.Items)
@@ -276,6 +327,7 @@ public sealed class MainViewModel : ObservableObject
             PreviewSummary = $"결함 {result.Defects.Count}개 · 중간 이미지 {result.Items.Count}장 · " +
                              $"{clock.Elapsed.TotalMilliseconds:F1} ms";
             Editor.StatusText = "미리보기 갱신됨";
+            return true;
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException
                                           or KeyNotFoundException or InvalidCastException)
@@ -284,6 +336,142 @@ public sealed class MainViewModel : ObservableObject
             PreviewSummary = "돌리다 멈췄습니다";
             Editor.ShowRunError(error.Message);
             Editor.StatusText = "미리보기 실패";
+            return false;
+        }
+    }
+
+    // ───────────────────────── 원본 뷰어 ↔ 에디터 ─────────────────────────
+
+    /// <summary>원본 뷰어의 '다이 에디터에 적용' — 미리보기를 원본의 ROI · 정상 die 로 돌린다. 돌려준 글자는 뷰어가 띄운다.</summary>
+    private string ApplyViewerRegions(PreviewInput input)
+    {
+        SetPreviewInput(input);
+
+        return RunPreview()
+            ? $"다이 에디터 미리보기를 원본으로 돌렸습니다 — {PreviewSummary}"
+            : "다이 에디터 미리보기를 못 돌렸습니다 — 다이 · 블록 에디터의 검증 · 실행 오류를 보세요";
+    }
+
+    private void UseSynthetic()
+    {
+        SetPreviewInput(null);
+
+        if (_previewOn)
+        {
+            RunPreview();
+        }
+    }
+
+    /// <summary>
+    /// 뷰어가 다른 원본을 열었다. ★ 원본으로 돌던 미리보기는 옛 원본의 영역이라 합성으로 되돌린다
+    ///   (옛 원본은 뷰어가 이미 놓았다 — 그대로 두면 놓은 것을 읽는다).
+    /// </summary>
+    private void OnViewerSourceChanged()
+    {
+        _viewerScene = null;
+
+        if (_previewInput is not null)
+        {
+            UseSynthetic();
+        }
+    }
+
+    private void SetPreviewInput(PreviewInput? input)
+    {
+        _previewInput = input;
+        OnPropertyChanged(nameof(PreviewSourceText));
+        OnPropertyChanged(nameof(IsOriginalPreview));
+        _useSyntheticCommand.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// 뷰어에 들어올 때 — 웨이퍼 레시피의 die(0,0) 원점을 뷰어 칸에 옮긴다.
+    /// ★ 레시피 값이 지난번과 같으면 덮지 않는다 — 뷰어에서 고치던 값을 지키려고.
+    /// </summary>
+    private void SyncOrigin()
+    {
+        if (WaferEditor.AlignmentOrigin() is { } origin && origin != _syncedOrigin)
+        {
+            Viewer.OriginX = origin.X;
+            Viewer.OriginY = origin.Y;
+            _syncedOrigin = origin;
+        }
+    }
+
+    /// <summary>
+    /// 고른 웨이퍼 결함 자리로 원본 뷰어를 옮긴다(교수님 <c>ShowWaferDefectCore</c>).
+    /// 그 사진이 뷰어에 없으면 연다(파일이면 같은 경로, 합성이면 복사본) → 결함 전부 빨강 · 고른 것 노랑 → 그 자리를 가운데에.
+    /// </summary>
+    private void ShowDefectInViewer()
+    {
+        if (WaferEditor.Scene is not { } scene || WaferEditor.SelectedDefect is not { AbsX: { } x, AbsY: { } y } chosen)
+        {
+            return;
+        }
+
+        if (!ViewerShows(scene))
+        {
+            if (scene.Path is { } path)
+            {
+                Viewer.Open(path);
+            }
+            else
+            {
+                Viewer.Load(CopyOf(scene.Source), scene.Title + " (웨이퍼 에디터의 견본)");
+            }
+
+            // 못 열었으면 뷰어 아래 줄에 까닭이 떠 있다 — 칸만 넘긴다.
+            if (scene.Path is { } wanted && (Viewer.SourcePath is not { } opened || !SamePath(opened, wanted)))
+            {
+                SelectedWorkspace = Workspace.Viewer;
+                return;
+            }
+
+            _viewerScene = scene;
+        }
+
+        Viewer.ShowMarkers(WaferEditor.Defects.Where(d => d.AbsX is not null && d.AbsY is not null).Select(MarkerOf));
+        Viewer.Highlight(chosen);
+        SelectedWorkspace = Workspace.Viewer;
+        Viewer.CenterOn(x, y);
+    }
+
+    private bool ViewerShows(WaferScene scene)
+        => ReferenceEquals(_viewerScene, scene)
+           || (scene.Path is { } path && Viewer.SourcePath is { } opened && SamePath(path, opened));
+
+    private static bool SamePath(string a, string b)
+        => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>합성 사진의 복사본 — 뷰어가 놓을 것이라 웨이퍼 에디터의 사진과 따로 산다.</summary>
+    private static MatImageSource CopyOf(IImageSource source)
+        => new(source.ReadRegion(new Roi(0, 0, source.Width, source.Height)));
+
+    /// <summary>결함 표시 하나 — 결함 가운데(웨이퍼 절대 좌표) + die 안 크기, 작으면 12 px.</summary>
+    private OverlayBoxViewModel MarkerOf(WaferDefect d)
+    {
+        MarkerBox box = RegionTool.Marker(d.AbsX!.Value, d.AbsY!.Value, d.Defect.Bounds.Width, d.Defect.Bounds.Height);
+
+        return new OverlayBoxViewModel(
+            d, box.X, box.Y, box.Width, box.Height,
+            d.Defect.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            $"die(c{d.DieCol},r{d.DieRow}) {d.Zone} #{d.Defect.Id}",
+            item => WaferEditor.SelectedDefect = (WaferDefect)item);
+    }
+
+    /// <summary>웨이퍼 결함을 고르면 뷰어의 노랑 표시도 따라가고, 결과가 지워지면 뷰어의 표시도 지운다(낡은 결과다).</summary>
+    private void OnWaferEditorChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(WaferEditorViewModel.SelectedDefect):
+                Viewer.Highlight(WaferEditor.SelectedDefect);
+                _showDefectInViewerCommand.RaiseCanExecuteChanged();
+                break;
+
+            case nameof(WaferEditorViewModel.HasResult) when !WaferEditor.HasResult:
+                Viewer.ClearMarkers();
+                break;
         }
     }
 

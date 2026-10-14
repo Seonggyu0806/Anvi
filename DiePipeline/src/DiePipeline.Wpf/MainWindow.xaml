@@ -198,88 +198,99 @@
                             <Run Text="{Binding PreviewSummary, Mode=OneWay}" />
                         </TextBlock>
                     </GroupBox.Header>
-                    <TabControl>
-                        <TabItem Header="단계별">
-                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                <ItemsControl ItemsSource="{Binding PreviewItems}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <StackPanel Orientation="Horizontal" />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <!-- 더블클릭 → 이 단계 그림을 배경으로 다이 오버레이 -->
-                                            <StackPanel Margin="4" Width="96" Background="Transparent" Cursor="Hand"
-                                                        ToolTip="더블클릭 — 오버레이에서 크게"
-                                                        MouseLeftButtonDown="OnThumbnailMouseDown">
-                                                <TextBlock Text="{Binding Key}" FontSize="10"
-                                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Key}" />
-                                                <Image Source="{Binding Image}" Height="96" Stretch="Uniform" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
-                        </TabItem>
+                    <DockPanel>
+                        <!-- 입력 = 합성 견본 또는 원본 뷰어에서 넘겨받은 ROI · 정상 die. 원본이면 되돌리기 단추. 칸이 좁아 줄을 바꾼다 -->
+                        <DockPanel DockPanel.Dock="Top" Margin="2,2,2,4">
+                            <Button DockPanel.Dock="Right" Content="합성으로 되돌리기" Command="{Binding UseSyntheticCommand}" Margin="6,0,0,0" Padding="4,0"
+                                    VerticalAlignment="Top" Visibility="{Binding IsOriginalPreview, Converter={StaticResource ShowWhenTrue}}" />
+                            <TextBlock TextWrapping="Wrap" Foreground="Gray">
+                                <Run Text="입력:" />
+                                <Run Text="{Binding PreviewSourceText, Mode=OneWay}" />
+                            </TextBlock>
+                        </DockPanel>
+                        <TabControl>
+                            <TabItem Header="단계별">
+                                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                    <ItemsControl ItemsSource="{Binding PreviewItems}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <!-- 더블클릭 → 이 단계 그림을 배경으로 다이 오버레이 -->
+                                                <StackPanel Margin="4" Width="96" Background="Transparent" Cursor="Hand"
+                                                            ToolTip="더블클릭 — 오버레이에서 크게"
+                                                            MouseLeftButtonDown="OnThumbnailMouseDown">
+                                                    <TextBlock Text="{Binding Key}" FontSize="10"
+                                                               TextTrimming="CharacterEllipsis" ToolTip="{Binding Key}" />
+                                                    <Image Source="{Binding Image}" Height="96" Stretch="Uniform" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </TabItem>
 
-                        <TabItem Header="결함">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
+                            <TabItem Header="결함">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
 
-                                <!--
-                                    ★★ 좌표를 다시 계산하지 않는다.
-                                      Viewbox 안에 '원본 픽셀 크기' 판을 깔고, 그 위에 결함 좌표를 그대로 얹는다.
-                                      확대·축소는 Viewbox 가 통째로 해 준다 — 배율 곱셈이 코드에 한 줄도 없다.
-                                      화면이 좌표를 직접 환산하기 시작하면 아래층과 어긋나는 날이 반드시 온다.
-                                -->
-                                <Viewbox Grid.Column="0" Stretch="Uniform" Margin="4" MaxWidth="200">
-                                    <Grid Width="{Binding InspectedWidth}" Height="{Binding InspectedHeight}">
-                                        <Image Source="{Binding Inspected}" Stretch="Fill" />
+                                    <!--
+                                        ★★ 좌표를 다시 계산하지 않는다.
+                                          Viewbox 안에 '원본 픽셀 크기' 판을 깔고, 그 위에 결함 좌표를 그대로 얹는다.
+                                          확대·축소는 Viewbox 가 통째로 해 준다 — 배율 곱셈이 코드에 한 줄도 없다.
+                                          화면이 좌표를 직접 환산하기 시작하면 아래층과 어긋나는 날이 반드시 온다.
+                                    -->
+                                    <Viewbox Grid.Column="0" Stretch="Uniform" Margin="4" MaxWidth="200">
+                                        <Grid Width="{Binding InspectedWidth}" Height="{Binding InspectedHeight}">
+                                            <Image Source="{Binding Inspected}" Stretch="Fill" />
 
-                                        <ItemsControl ItemsSource="{Binding Defects}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <Canvas />
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemContainerStyle>
-                                                <Style TargetType="ContentPresenter">
-                                                    <Setter Property="Canvas.Left" Value="{Binding Bounds.X}" />
-                                                    <Setter Property="Canvas.Top" Value="{Binding Bounds.Y}" />
-                                                </Style>
-                                            </ItemsControl.ItemContainerStyle>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Rectangle Width="{Binding Bounds.Width}"
-                                                               Height="{Binding Bounds.Height}"
-                                                               Stroke="#E53935" StrokeThickness="0.4" />
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </Grid>
-                                </Viewbox>
+                                            <ItemsControl ItemsSource="{Binding Defects}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <Canvas />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemContainerStyle>
+                                                    <Style TargetType="ContentPresenter">
+                                                        <Setter Property="Canvas.Left" Value="{Binding Bounds.X}" />
+                                                        <Setter Property="Canvas.Top" Value="{Binding Bounds.Y}" />
+                                                    </Style>
+                                                </ItemsControl.ItemContainerStyle>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Rectangle Width="{Binding Bounds.Width}"
+                                                                   Height="{Binding Bounds.Height}"
+                                                                   Stroke="#E53935" StrokeThickness="0.4" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </Grid>
+                                    </Viewbox>
 
-                                <!-- 결함 목록 — Defect 를 그대로 바인딩한다 -->
-                                <DataGrid Grid.Column="1" ItemsSource="{Binding Defects}" Margin="4"
-                                          AutoGenerateColumns="False" IsReadOnly="True"
-                                          HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                                          FontSize="11">
-                                    <DataGrid.Columns>
-                                        <DataGridTextColumn Header="#" Binding="{Binding Id}" Width="36" />
-                                        <DataGridTextColumn Header="위치" Binding="{Binding Bounds}" Width="*" />
-                                        <DataGridTextColumn Header="면적" Binding="{Binding Area}" Width="52" />
-                                        <DataGridTextColumn Header="밝기"
-                                                            Binding="{Binding MeanIntensity, StringFormat=F2}"
-                                                            Width="48" />
-                                    </DataGrid.Columns>
-                                </DataGrid>
-                            </Grid>
-                        </TabItem>
-                    </TabControl>
+                                    <!-- 결함 목록 — Defect 를 그대로 바인딩한다 -->
+                                    <DataGrid Grid.Column="1" ItemsSource="{Binding Defects}" Margin="4"
+                                              AutoGenerateColumns="False" IsReadOnly="True"
+                                              HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                              FontSize="11">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="#" Binding="{Binding Id}" Width="36" />
+                                            <DataGridTextColumn Header="위치" Binding="{Binding Bounds}" Width="*" />
+                                            <DataGridTextColumn Header="면적" Binding="{Binding Area}" Width="52" />
+                                            <DataGridTextColumn Header="밝기"
+                                                                Binding="{Binding MeanIntensity, StringFormat=F2}"
+                                                                Width="48" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </Grid>
+                            </TabItem>
+                        </TabControl>
+                    </DockPanel>
                 </GroupBox>
             </views:GraphEditorView.SideContent>
         </views:GraphEditorView>
@@ -558,20 +569,26 @@
 
         <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#E5E7EB" />
 
-        <!-- 결함 목록 — 실행 칸의 결함 표와 같은 목록 · 같은 고름 -->
+        <!-- 결함 목록 — 실행 칸의 결함 표와 같은 목록 · 같은 고름. 줄 더블클릭 = 원본에서 보기 -->
         <GroupBox Grid.Column="2" Header="결함(샘플링 후)">
-            <DataGrid ItemsSource="{Binding Defects}" SelectedItem="{Binding SelectedDefect}" AutoGenerateColumns="False"
-                      IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal" FontSize="11">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="열" Binding="{Binding DieCol}" Width="36" />
-                    <DataGridTextColumn Header="행" Binding="{Binding DieRow}" Width="36" />
-                    <DataGridTextColumn Header="존" Binding="{Binding Zone}" Width="40" />
-                    <DataGridTextColumn Header="#" Binding="{Binding Defect.Id}" Width="36" />
-                    <DataGridTextColumn Header="웨이퍼 X" Binding="{Binding AbsX, StringFormat=F1}" Width="70" />
-                    <DataGridTextColumn Header="웨이퍼 Y" Binding="{Binding AbsY, StringFormat=F1}" Width="70" />
-                    <DataGridTextColumn Header="면적" Binding="{Binding Defect.Area}" Width="*" />
-                </DataGrid.Columns>
-            </DataGrid>
+            <DockPanel>
+                <Button DockPanel.Dock="Top" Content="원본에서 보기" HorizontalAlignment="Left" Margin="0,2,0,4" Padding="6,1"
+                        Command="{Binding DataContext.ShowDefectInViewerCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        ToolTip="원본 이미지 뷰어에서 고른 결함 자리를 100% 로 — 결함 전부 빨강 · 고른 것 노랑(줄 더블클릭과 같다)" />
+                <DataGrid ItemsSource="{Binding Defects}" SelectedItem="{Binding SelectedDefect}" AutoGenerateColumns="False"
+                          IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal" FontSize="11"
+                          MouseDoubleClick="OnWaferDefectDoubleClick">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="열" Binding="{Binding DieCol}" Width="36" />
+                        <DataGridTextColumn Header="행" Binding="{Binding DieRow}" Width="36" />
+                        <DataGridTextColumn Header="존" Binding="{Binding Zone}" Width="40" />
+                        <DataGridTextColumn Header="#" Binding="{Binding Defect.Id}" Width="36" />
+                        <DataGridTextColumn Header="웨이퍼 X" Binding="{Binding AbsX, StringFormat=F1}" Width="70" />
+                        <DataGridTextColumn Header="웨이퍼 Y" Binding="{Binding AbsY, StringFormat=F1}" Width="70" />
+                        <DataGridTextColumn Header="면적" Binding="{Binding Defect.Area}" Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
         </GroupBox>
     </Grid>
 

@@ -1,26 +1,42 @@
-﻿using System.Globalization;
+﻿using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using DiePipeline.Core.Domain;
 using DiePipeline.Core.Imaging;
 using DiePipeline.Cv.Imaging;
 using DiePipeline.Viewer;
 using DiePipeline.Wpf.Imaging;
 using DiePipeline.Wpf.Mvvm;
+using DiePipeline.Wpf.Preview;
 using Microsoft.Win32;
 using OpenCvSharp;
 
 namespace DiePipeline.Wpf.ViewModels;
 
+/// <summary>뷰어의 왼쪽 버튼이 하는 일 — 보기(아무것도 안 그림) 또는 그 종류의 영역 그리기.</summary>
+public enum ViewerTool
+{
+    View,
+    Roi,
+    Chip,
+    Feature,
+}
+
 /// <summary>
 /// 원본 이미지 뷰어 — 원본 한 장을 열어 축소본 + 선명 조각으로 보여 주고, 커서 아래 원본 좌표 · 픽셀값을 알린다
-/// (교수님 <c>ImageViewerModel</c> 의 '보기' 부분).
+/// (교수님 <c>ImageViewerModel</c>).
+///
+/// ★ 영역 그리기 — 검사 ROI(1) · 정상 die(N) · 정렬 특징(N). 다이 · 웨이퍼 에디터에 넘긴다(<see cref="ApplyToDie"/> · <see cref="ApplyToWafer"/>).
+///   die-to-die 는 같은 크기끼리 비교하므로, 기준 크기가 생기면 다음 영역은 <b>같은 크기로 찍는다</b>(교수님 규칙).
+/// ★ 결함 표시 — 웨이퍼 결함을 원본 위에 얹고 그 자리로 간다(<see cref="ShowMarkers"/> · <see cref="CenterOn"/>).
 ///
 /// ★ 그림은 '원본 픽셀 크기의 판' 위에 놓인다. 확대는 판 전체에 배율을 거는 것이라, 판 위의 좌표는 <b>늘 원본 픽셀</b>이다 —
 ///   다음 단계(영역 그리기 · 결함 표시)도 좌표를 다시 계산하지 않는다.
 /// ★ 보이는 방법(축소 배율 · 선명 조각이 필요한가 · 보이는 영역)은 <see cref="ViewportPlanner"/> 가 정한다 — 화면 없이 시험된다.
 ///   여기는 이미지 소스에서 읽어 그림으로 바꾸는 일만 한다.
-/// ★ 보기만 한다 — 아무것도 저장하지 않는다.
+/// ★ 아무것도 저장하지 않는다 — 영역은 화면에만 있다(저장은 다음 단계, 레포 밖에만).
 /// </summary>
 public sealed class ImageViewerViewModel : ObservableObject, IDisposable
 {
@@ -38,17 +54,126 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
     private Roi _sharpRegion;
     private int _proxyFactor = 1;
     private double _zoom = 1;
+    private const string DrawHint = "도구를 고르고 그림 위를 왼쪽 버튼으로 끌어 영역을 그립니다";
+
+    private readonly RelayCommand _applyDieCommand;
+    private readonly RelayCommand _applyWaferCommand;
     private string _cursorText = string.Empty;
+    private ViewerTool _tool = ViewerTool.View;
+    private string _statusText = DrawHint;
+    private double _originX;
+    private double _originY;
+    private Func<PreviewInput, string>? _applyToDie;
+    private Func<IReadOnlyList<PointF>, PointF, string>? _applyToWafer;
 
     public ImageViewerViewModel()
     {
         OpenCommand = new RelayCommand(OpenWithDialog);
+        ClearChipsCommand = new RelayCommand(() => Clear(ChipRegions));
+        ClearFeaturesCommand = new RelayCommand(() => Clear(FeatureRegions));
+        ClearMarkersCommand = new RelayCommand(ClearMarkers);
+        _applyDieCommand = new RelayCommand(ApplyDie, () => _applyToDie is not null && RoiRegions.Count > 0 && ChipRegions.Count > 0);
+        _applyWaferCommand = new RelayCommand(ApplyWafer, () => _applyToWafer is not null && FeatureRegions.Count >= 2);
     }
 
     /// <summary>새 원본을 열었다 — 화면이 그림 전체가 보이게 맞춘다(배율은 화면 크기를 아는 쪽이 정한다).</summary>
     public event Action? FitRequested;
 
+    /// <summary>원본 (x, y) 를 화면 가운데에 — 배율 · 스크롤은 화면이 정한다.</summary>
+    public event Action<double, double>? CenterRequested;
+
+    /// <summary>
+    /// 원본이 바뀌었다(새로 열거나 올렸다). ★ 이 뷰어의 영역으로 돌던 다이 미리보기는 옛 원본을 보고 있으니 되돌려야 한다.
+    /// </summary>
+    public event Action? SourceChanged;
+
     public ICommand OpenCommand { get; }
+
+    public ICommand ClearChipsCommand { get; }
+
+    public ICommand ClearFeaturesCommand { get; }
+
+    public ICommand ClearMarkersCommand { get; }
+
+    /// <summary>'다이 에디터에 적용' — 검사 ROI 와 정상 die 가 있어야 누를 수 있다.</summary>
+    public ICommand ApplyDieCommand => _applyDieCommand;
+
+    /// <summary>'웨이퍼 에디터에 적용' — 정렬 특징이 2개 이상이어야 누를 수 있다.</summary>
+    public ICommand ApplyWaferCommand => _applyWaferCommand;
+
+    /// <summary>
+    /// 다이 미리보기를 이 영역으로 돌리는 곳 — 창이 이어 준다. 돌려준 글자를 아래에 띄운다.
+    /// ★ 뷰어는 다이 에디터를 모른다 — 넘기기만 한다(교수님 앱과 같다).
+    /// </summary>
+    public Func<PreviewInput, string>? ApplyToDie
+    {
+        get => _applyToDie;
+        set
+        {
+            _applyToDie = value;
+            _applyDieCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>웨이퍼 레시피에 표식 설계 자리 · die(0,0) 원점을 쓰는 곳 — 창이 이어 준다.</summary>
+    public Func<IReadOnlyList<PointF>, PointF, string>? ApplyToWafer
+    {
+        get => _applyToWafer;
+        set
+        {
+            _applyToWafer = value;
+            _applyWaferCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>왼쪽 버튼이 하는 일.</summary>
+    public ViewerTool Tool
+    {
+        get => _tool;
+        set => SetField(ref _tool, value);
+    }
+
+    /// <summary>검사 ROI — 0개 또는 1개. 목록 칸을 다른 영역과 같은 모양으로 그리려고 목록으로 둔다.</summary>
+    public ObservableCollection<RegionViewModel> RoiRegions { get; } = [];
+
+    public ObservableCollection<RegionViewModel> ChipRegions { get; } = [];
+
+    public ObservableCollection<RegionViewModel> FeatureRegions { get; } = [];
+
+    /// <summary>그림 위에 그릴 영역 전부 — 셋을 합친 것.</summary>
+    public ObservableCollection<RegionViewModel> Regions { get; } = [];
+
+    /// <summary>결함 표시 — 빨강, 고른 것은 노랑. 누를 수 없다(그리기를 막지 않게).</summary>
+    public ObservableCollection<OverlayBoxViewModel> Markers { get; } = [];
+
+    public bool HasMarkers => Markers.Count > 0;
+
+    public string MarkerText => $"결함 {Markers.Count}개 표시 중";
+
+    /// <summary>die(0,0) 원점(원본 px) — 표식 설계 자리 = 특징 왼쪽 위 − 이 값. 웨이퍼 레시피의 <c>firstDieX/Y</c> 와 같은 값.</summary>
+    public double OriginX
+    {
+        get => _originX;
+        set => SetField(ref _originX, value);
+    }
+
+    public double OriginY
+    {
+        get => _originY;
+        set => SetField(ref _originY, value);
+    }
+
+    /// <summary>영역 · 적용에 대한 알림 — 왼쪽 판 맨 아래.</summary>
+    public string StatusText
+    {
+        get => _statusText;
+        private set => SetField(ref _statusText, value);
+    }
+
+    /// <summary>영역 · 결함 선 두께, 이름표 글자 크기(원본 px) — 배율이 바뀌어도 화면에서 같은 굵기로 보이게.</summary>
+    public double RegionLine => 1.5 / Zoom;
+
+    public double RegionLabelSize => 12 / Zoom;
 
     public bool HasImage => _source is not null;
 
@@ -97,6 +222,8 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
             if (SetField(ref _zoom, Math.Clamp(value, MinZoom, MaxZoom)))
             {
                 OnPropertyChanged(nameof(ZoomText));
+                OnPropertyChanged(nameof(RegionLine));
+                OnPropertyChanged(nameof(RegionLabelSize));
             }
         }
     }
@@ -161,6 +288,14 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         ClearSharp();
         CursorText = string.Empty;
 
+        // ★ 영역 · 결함 표시는 옛 원본의 좌표다 — 새 원본에서는 뜻이 없다.
+        RoiRegions.Clear();
+        ChipRegions.Clear();
+        FeatureRegions.Clear();
+        RebuildRegions();
+        ClearMarkers();
+        StatusText = DrawHint;
+
         OnPropertyChanged(nameof(HasImage));
         OnPropertyChanged(nameof(SourcePath));
         OnPropertyChanged(nameof(ImageWidth));
@@ -168,7 +303,188 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ProxyFactor));
         OnPropertyChanged(nameof(InfoText));
 
+        SourceChanged?.Invoke();
         FitRequested?.Invoke();
+    }
+
+    // ───────────────────────── 영역 그리기 ─────────────────────────
+
+    /// <summary>
+    /// 왼쪽 버튼으로 (x0, y0) → (x1, y1)(원본 px) 을 끌었다 — 지금 도구의 영역을 하나 놓는다.
+    /// ★ 기준 크기가 있으면 끈 크기는 버리고 <b>끈 자리(왼쪽 위)에 같은 크기로 찍는다</b> —
+    ///   정상 die 는 ROI 크기, ROI 는 첫 정상 die 크기, 정렬 특징은 첫 특징 크기(교수님 규칙).
+    /// </summary>
+    public void PlaceRegion(double x0, double y0, double x1, double y1)
+    {
+        if (_source is null || Tool == ViewerTool.View)
+        {
+            return;
+        }
+
+        (int Width, int Height)? size = Tool switch
+        {
+            ViewerTool.Roi => ChipRegions.Count > 0 ? SizeOf(ChipRegions[0]) : null,
+            ViewerTool.Chip => RoiRegions.Count > 0 ? SizeOf(RoiRegions[0]) : ChipRegions.Count > 0 ? SizeOf(ChipRegions[0]) : null,
+            _ => FeatureRegions.Count > 0 ? SizeOf(FeatureRegions[0]) : null,
+        };
+
+        Roi? area = size is { } s
+            ? RegionTool.Stamp(Math.Min(x0, x1), Math.Min(y0, y1), s.Width, s.Height, ImageWidth, ImageHeight)
+            : RegionTool.FromDrag(x0, y0, x1, y1, ImageWidth, ImageHeight);
+
+        if (area is not { } a)
+        {
+            StatusText = "끌어서 크기를 정하세요 — 첫 영역은 끈 크기가 그 종류의 크기가 됩니다";
+            return;
+        }
+
+        switch (Tool)
+        {
+            case ViewerTool.Roi:
+                RoiRegions.Clear();
+                RoiRegions.Add(new RegionViewModel(RegionKind.Roi, a, Remove));
+                break;
+            case ViewerTool.Chip:
+                ChipRegions.Add(new RegionViewModel(RegionKind.Chip, a, Remove));
+                break;
+            default:
+                FeatureRegions.Add(new RegionViewModel(RegionKind.Feature, a, Remove));
+                break;
+        }
+
+        RebuildRegions();
+        StatusText = $"ROI {RoiRegions.Count} · 정상 die {ChipRegions.Count} · 정렬 특징 {FeatureRegions.Count}";
+    }
+
+    /// <summary>원본 (x, y) 를 화면 가운데에 둔다. 그림 밖이면 가장자리로.</summary>
+    public void CenterOn(double x, double y)
+    {
+        if (_source is null)
+        {
+            return;
+        }
+
+        CenterRequested?.Invoke(Math.Clamp(x, 0, ImageWidth - 1), Math.Clamp(y, 0, ImageHeight - 1));
+    }
+
+    /// <summary>결함 표시를 바꿔 얹는다. 상자는 원본 px.</summary>
+    public void ShowMarkers(IEnumerable<OverlayBoxViewModel> markers)
+    {
+        ArgumentNullException.ThrowIfNull(markers);
+
+        Markers.Clear();
+
+        foreach (OverlayBoxViewModel marker in markers)
+        {
+            Markers.Add(marker);
+        }
+
+        RaiseMarkers();
+    }
+
+    /// <summary>이 결함의 표시만 노랑으로.</summary>
+    public void Highlight(object? item)
+    {
+        foreach (OverlayBoxViewModel marker in Markers)
+        {
+            marker.IsSelected = ReferenceEquals(marker.Item, item);
+        }
+    }
+
+    public void ClearMarkers()
+    {
+        Markers.Clear();
+        RaiseMarkers();
+    }
+
+    private static (int Width, int Height) SizeOf(RegionViewModel region) => (region.Width, region.Height);
+
+    private void Remove(RegionViewModel region)
+    {
+        _ = RoiRegions.Remove(region) || ChipRegions.Remove(region) || FeatureRegions.Remove(region);
+        RebuildRegions();
+    }
+
+    private void Clear(ObservableCollection<RegionViewModel> regions)
+    {
+        regions.Clear();
+        RebuildRegions();
+    }
+
+    /// <summary>그림 위 목록을 다시 모으고 이름표를 다시 매긴다 — 지운 뒤에도 1, 2, 3 으로 이어지게.</summary>
+    private void RebuildRegions()
+    {
+        Regions.Clear();
+
+        foreach (RegionViewModel roi in RoiRegions)
+        {
+            roi.Label = "ROI";
+            Regions.Add(roi);
+        }
+
+        for (int i = 0; i < ChipRegions.Count; i++)
+        {
+            ChipRegions[i].Label = (i + 1).ToString(CultureInfo.InvariantCulture);
+            Regions.Add(ChipRegions[i]);
+        }
+
+        for (int i = 0; i < FeatureRegions.Count; i++)
+        {
+            FeatureRegions[i].Label = "F" + (i + 1).ToString(CultureInfo.InvariantCulture);
+            Regions.Add(FeatureRegions[i]);
+        }
+
+        _applyDieCommand.RaiseCanExecuteChanged();
+        _applyWaferCommand.RaiseCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// 다이 미리보기를 지금 ROI · 정상 die 로 돌린다. ★ 지금 숫자를 <b>찍어서</b> 넘긴다 — 넘긴 뒤 영역을 고쳐도 미리보기는 그대로다
+    ///   (다시 적용하면 바뀐다). 크기가 다르거나 그림 밖이면 넘기지 않고 까닭을 띄운다.
+    /// </summary>
+    private void ApplyDie()
+    {
+        if (_source is null || _applyToDie is null || RoiRegions.Count == 0)
+        {
+            return;
+        }
+
+        Roi roi = RoiRegions[0].Area;
+        Roi[] chips = [.. ChipRegions.Select(c => c.Area)];
+
+        if (RegionTool.CheckDieRegions(roi, chips, ImageWidth, ImageHeight) is { } problem)
+        {
+            StatusText = "적용 못 함 — " + problem;
+            return;
+        }
+
+        StatusText = _applyToDie(new PreviewInput(_source, _title, roi, chips));
+    }
+
+    /// <summary>표식 설계 자리(특징 왼쪽 위 − 원점)를 계산해 웨이퍼 레시피에 쓴다.</summary>
+    private void ApplyWafer()
+    {
+        if (_source is null || _applyToWafer is null)
+        {
+            return;
+        }
+
+        Roi[] features = [.. FeatureRegions.Select(f => f.Area)];
+
+        if (RegionTool.CheckFeatures(features, ImageWidth, ImageHeight) is { } problem)
+        {
+            StatusText = "적용 못 함 — " + problem;
+            return;
+        }
+
+        PointF[] expected = [.. features.Select(f => RegionTool.Expected(f, OriginX, OriginY))];
+        StatusText = _applyToWafer(expected, new PointF(OriginX, OriginY));
+    }
+
+    private void RaiseMarkers()
+    {
+        OnPropertyChanged(nameof(HasMarkers));
+        OnPropertyChanged(nameof(MarkerText));
     }
 
     /// <summary>

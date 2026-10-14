@@ -1,17 +1,50 @@
 <UserControl x:Class="DiePipeline.Wpf.Views.ImageViewerView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:conv="clr-namespace:DiePipeline.Wpf.Converters">
+             xmlns:conv="clr-namespace:DiePipeline.Wpf.Converters"
+             xmlns:vm="clr-namespace:DiePipeline.Wpf.ViewModels">
 
     <!--
         ★ 원본 이미지 뷰어 — DataContext 는 ImageViewerViewModel.
           판(Board) = 원본 픽셀 크기. 축소본을 판 크기로 늘여 깔고, 확대는 판 전체에 배율(LayoutTransform)을 건다.
-          그래서 판 위 좌표는 늘 원본 픽셀이다 — 선명 조각도 원본 좌표 그대로 덮는다.
-        ★ 휠 = 커서 기준 확대 · 축소, 오른쪽 버튼 끌기 = 이동(블록 캔버스와 같은 조작).
+          그래서 판 위 좌표는 늘 원본 픽셀이다 — 선명 조각 · 영역 · 결함 표시도 원본 좌표 그대로 얹는다.
+        ★ 휠 = 커서 기준 확대 · 축소, 오른쪽 버튼 끌기 = 이동(블록 캔버스와 같은 조작), 왼쪽 버튼 끌기 = 고른 도구의 영역 그리기.
     -->
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="ShowWhenTrue" />
         <conv:InverseBoolToVisibilityConverter x:Key="HideWhenTrue" />
+        <!-- 작업공간 바와 같은 변환기 — 단추 하나 ↔ 고른 값(값이 같은가만 본다) -->
+        <conv:WorkspaceToCheckedConverter x:Key="ToolChecked" />
+
+        <!-- 영역 한 줄 — 이름표 · x · y · 폭 · 높이(원본 px) · ✕. 숫자를 고치면 그림 위 상자가 바로 따라온다 -->
+        <DataTemplate x:Key="RegionRow" DataType="{x:Type vm:RegionViewModel}">
+            <Grid Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="30" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="22" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Label}" Foreground="{Binding Color}" FontWeight="Bold" VerticalAlignment="Center" />
+                <TextBox Grid.Column="1" Text="{Binding X, UpdateSourceTrigger=PropertyChanged}" ToolTip="x(원본 px)" Margin="1,0" />
+                <TextBox Grid.Column="2" Text="{Binding Y, UpdateSourceTrigger=PropertyChanged}" ToolTip="y(원본 px)" Margin="1,0" />
+                <TextBox Grid.Column="3" Text="{Binding Width, UpdateSourceTrigger=PropertyChanged}" ToolTip="폭(원본 px)" Margin="1,0" />
+                <TextBox Grid.Column="4" Text="{Binding Height, UpdateSourceTrigger=PropertyChanged}" ToolTip="높이(원본 px)" Margin="1,0" />
+                <Button Grid.Column="5" Content="✕" Command="{Binding RemoveCommand}" ToolTip="지우기" Padding="0" Margin="2,0,0,0" />
+            </Grid>
+        </DataTemplate>
+
+        <Style x:Key="SectionCaption" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <Style x:Key="ToolButton" TargetType="RadioButton">
+            <Setter Property="GroupName" Value="viewerTool" />
+            <Setter Property="Margin" Value="0,2,10,2" />
+        </Style>
     </UserControl.Resources>
 
     <DockPanel>
@@ -38,6 +71,69 @@
             </StatusBarItem>
         </StatusBar>
 
+        <!-- ═════════ 왼쪽 판 — 도구 · 영역 목록 · 적용 · 결함 표시 ═════════ -->
+        <Border DockPanel.Dock="Left" Width="290" BorderBrush="#E5E7EB" BorderThickness="0,0,1,0"
+                IsEnabled="{Binding HasImage}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8">
+                    <TextBlock Text="왼쪽 버튼" Style="{StaticResource SectionCaption}" />
+                    <WrapPanel>
+                        <RadioButton Style="{StaticResource ToolButton}" Content="보기"
+                                     IsChecked="{Binding Tool, Converter={StaticResource ToolChecked}, ConverterParameter={x:Static vm:ViewerTool.View}}" />
+                        <RadioButton Style="{StaticResource ToolButton}" Content="ROI"
+                                     IsChecked="{Binding Tool, Converter={StaticResource ToolChecked}, ConverterParameter={x:Static vm:ViewerTool.Roi}}" />
+                        <RadioButton Style="{StaticResource ToolButton}" Content="정상 die"
+                                     IsChecked="{Binding Tool, Converter={StaticResource ToolChecked}, ConverterParameter={x:Static vm:ViewerTool.Chip}}" />
+                        <RadioButton Style="{StaticResource ToolButton}" Content="정렬 특징"
+                                     IsChecked="{Binding Tool, Converter={StaticResource ToolChecked}, ConverterParameter={x:Static vm:ViewerTool.Feature}}" />
+                    </WrapPanel>
+                    <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="0,2,0,0"
+                               Text="첫 영역은 끈 크기로, 그다음은 같은 크기로 찍습니다(정상 die = ROI 크기). 칸: 이름 · x · y · 폭 · 높이(원본 px)" />
+
+                    <!-- 검사 ROI -->
+                    <TextBlock Text="검사 ROI" Foreground="#3B82F6" Style="{StaticResource SectionCaption}" Margin="0,12,0,2" />
+                    <ItemsControl ItemsSource="{Binding RoiRegions}" ItemTemplate="{StaticResource RegionRow}" />
+
+                    <!-- 정상 die -->
+                    <DockPanel Margin="0,10,0,2">
+                        <Button DockPanel.Dock="Right" Content="모두 지우기" Command="{Binding ClearChipsCommand}" Padding="4,0" />
+                        <TextBlock Text="정상 die(골든을 만들 이웃)" Foreground="#22C55E" Style="{StaticResource SectionCaption}" />
+                    </DockPanel>
+                    <ItemsControl ItemsSource="{Binding ChipRegions}" ItemTemplate="{StaticResource RegionRow}" />
+                    <Button Content="다이 에디터에 적용" Command="{Binding ApplyDieCommand}" Margin="0,6,0,0" Padding="4,2"
+                            ToolTip="다이 미리보기를 합성 견본 대신 이 ROI · 정상 die 로 돌린다 — 아무것도 저장하지 않는다" />
+
+                    <!-- 정렬 특징 -->
+                    <DockPanel Margin="0,14,0,2">
+                        <Button DockPanel.Dock="Right" Content="모두 지우기" Command="{Binding ClearFeaturesCommand}" Padding="4,0" />
+                        <TextBlock Text="정렬 특징(표식)" Foreground="#8B5CF6" Style="{StaticResource SectionCaption}" />
+                    </DockPanel>
+                    <ItemsControl ItemsSource="{Binding FeatureRegions}" ItemTemplate="{StaticResource RegionRow}" />
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="die(0,0) 원점 x · y " VerticalAlignment="Center"
+                                   ToolTip="웨이퍼 레시피 SolveAlignment 의 firstDieX/Y — 뷰어에 들어올 때 레시피 값을 옮겨 온다" />
+                        <TextBox Grid.Column="1" Text="{Binding OriginX, UpdateSourceTrigger=PropertyChanged}" Margin="1,0" />
+                        <TextBox Grid.Column="2" Text="{Binding OriginY, UpdateSourceTrigger=PropertyChanged}" Margin="1,0" />
+                    </Grid>
+                    <Button Content="웨이퍼 에디터에 적용(설계 자리)" Command="{Binding ApplyWaferCommand}" Margin="0,6,0,0" Padding="4,2"
+                            ToolTip="표식 설계 자리 = 특징 왼쪽 위 − die(0,0) 원점 → SolveAlignment 의 expected · firstDieX/Y 에 쓴다. 2개 이상" />
+
+                    <!-- 결함 표시(웨이퍼 오버레이에서 넘어왔을 때) -->
+                    <DockPanel Margin="0,14,0,0" Visibility="{Binding HasMarkers, Converter={StaticResource ShowWhenTrue}}">
+                        <Button DockPanel.Dock="Right" Content="표시 지우기" Command="{Binding ClearMarkersCommand}" Padding="4,0" />
+                        <TextBlock Text="{Binding MarkerText}" Foreground="#DC2626" Style="{StaticResource SectionCaption}" />
+                    </DockPanel>
+
+                    <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Foreground="#374151" Margin="0,14,0,0" />
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
         <Grid Background="#1E2630">
             <TextBlock Text="'원본 열기…' 로 사진을 여세요 — 휠: 확대 · 축소 · 오른쪽 버튼 끌기: 이동"
                        Foreground="#9AA4B2" HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -53,7 +149,8 @@
                           ScrollChanged="OnScrollChanged">
                 <!-- 그림이 화면보다 작으면(맞춤 · 축소) 가운데에 — 남는 여백을 양쪽으로 나눈다 -->
                 <Grid x:Name="Board" Width="{Binding ImageWidth}" Height="{Binding ImageHeight}"
-                      HorizontalAlignment="Center" VerticalAlignment="Center">
+                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                      MouseLeftButtonDown="OnDrawStart" MouseLeftButtonUp="OnDrawEnd" LostMouseCapture="OnDrawLost">
                     <Grid.LayoutTransform>
                         <ScaleTransform ScaleX="{Binding Zoom}" ScaleY="{Binding Zoom}" />
                     </Grid.LayoutTransform>
@@ -66,6 +163,72 @@
                         <Image Source="{Binding SharpImage}" Canvas.Left="{Binding SharpX}" Canvas.Top="{Binding SharpY}"
                                Width="{Binding SharpWidth}" Height="{Binding SharpHeight}"
                                Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                    </Canvas>
+
+                    <!-- 그린 영역 — ROI 파랑 · 정상 die 초록 · 정렬 특징 보라. 선 두께는 화면에서 같은 굵기(배율로 나눈다) -->
+                    <ItemsControl ItemsSource="{Binding Regions}" IsHitTestVisible="False">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Rectangle Width="{Binding Width}" Height="{Binding Height}" Stroke="{Binding Color}" Fill="#18FFFFFF"
+                                               StrokeThickness="{Binding DataContext.RegionLine, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                    <TextBlock Text="{Binding Label}" Foreground="White" Background="{Binding Color}"
+                                               HorizontalAlignment="Left" VerticalAlignment="Top"
+                                               FontSize="{Binding DataContext.RegionLabelSize, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- 결함 표시 — 빨강, 고른 결함은 노랑. 누를 수 없다(영역 그리기를 막지 않게) -->
+                    <ItemsControl ItemsSource="{Binding Markers}" IsHitTestVisible="False">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <Canvas />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Rectangle Width="{Binding Width}" Height="{Binding Height}"
+                                           StrokeThickness="{Binding DataContext.RegionLine, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                                    <Rectangle.Style>
+                                        <Style TargetType="Rectangle">
+                                            <Setter Property="Stroke" Value="#FF5252" />
+                                            <Setter Property="Fill" Value="#1AFF5252" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                    <Setter Property="Stroke" Value="#FFD740" />
+                                                    <Setter Property="Fill" Value="#33FFD740" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Rectangle.Style>
+                                </Rectangle>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- 끄는 중인 사각형(고무줄) -->
+                    <Canvas IsHitTestVisible="False">
+                        <Rectangle x:Name="Rubber" Visibility="Collapsed" Stroke="White" StrokeDashArray="4 2"
+                                   StrokeThickness="{Binding RegionLine}" />
                     </Canvas>
                 </Grid>
             </ScrollViewer>

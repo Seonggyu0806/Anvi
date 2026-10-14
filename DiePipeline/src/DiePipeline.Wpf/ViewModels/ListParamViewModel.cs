@@ -94,6 +94,25 @@ public sealed class ListParamViewModel : ObservableObject
 
     internal ListParam Param => _param;
 
+    /// <summary>
+    /// 행을 통째로 바꾼다 — 원본 뷰어의 '웨이퍼 에디터에 적용' 이 표식 자리를 한 번에 쓴다.
+    /// ★ 블록 값은 한 번만 쓴다(행마다 쓰면 검증 · 낡음 알림이 행 수만큼 돈다).
+    /// </summary>
+    public void ReplaceRows(IEnumerable<IReadOnlyList<string>> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+
+        Rows.Clear();
+
+        foreach (IReadOnlyList<string> texts in rows)
+        {
+            Rows.Add(new ListRowViewModel(this, texts));
+        }
+
+        OnPropertyChanged(nameof(Enabled));
+        Write();
+    }
+
     internal FieldServices Services => _services;
 
     internal void Remove(ListRowViewModel row)

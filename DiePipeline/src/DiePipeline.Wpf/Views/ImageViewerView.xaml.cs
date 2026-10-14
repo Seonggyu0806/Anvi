@@ -8,10 +8,12 @@ using DiePipeline.Wpf.ViewModels;
 namespace DiePipeline.Wpf.Views;
 
 /// <summary>
-/// 원본 이미지 뷰어 화면 — 휠 확대 · 오른쪽 끌기 이동 · 화면 맞춤 · 선명 조각 요청. DataContext 는 <see cref="ImageViewerViewModel"/>.
+/// 원본 이미지 뷰어 화면 — 휠 확대 · 오른쪽 끌기 이동 · 왼쪽 끌기 영역 그리기 · 화면 맞춤 · 가운데 두기 · 선명 조각 요청.
+/// DataContext 는 <see cref="ImageViewerViewModel"/>.
 ///
 /// ★ 여기 있는 것은 <b>화면만 아는 값</b>(스크롤 위치 · 보이는 크기 · 마우스)을 다루는 일뿐이다.
-///   커서 기준 확대 · 맞춤 배율 · 보이는 영역 계산은 <see cref="ViewportTransform"/> · <see cref="ViewportPlanner"/>(시험됨)가 한다.
+///   커서 기준 확대 · 맞춤 배율 · 보이는 영역 · 끈 사각형 · 가운데 두기 계산은
+///   <see cref="ViewportTransform"/> · <see cref="ViewportPlanner"/> · <see cref="RegionTool"/>(시험됨)가 한다.
 /// </summary>
 public partial class ImageViewerView : UserControl
 {
@@ -22,8 +24,15 @@ public partial class ImageViewerView : UserControl
     private double _panX;
     private double _panY;
 
-    // 그림 전체 보기를 아직 못 했다 — 화면이 보이고 크기가 생기면 한다(블록 캔버스와 같은 이유).
-    private bool _fitPending;
+    // 왼쪽 버튼으로 끄는 중 — 시작점(판 위 = 원본 px).
+    private Point? _drawFrom;
+
+    // ★ 아직 못 한 화면 맞추기 · 가운데 두기 — 화면이 보이고 크기가 생기면 한다(블록 캔버스와 같은 이유).
+    //   한 칸뿐이라 나중 요청이 이긴다: 결함 자리로 가면서 새 원본을 열면 '맞춤' 대신 '가운데 두기' 가 남는다.
+    private Action? _pending;
+
+    // 새 원본을 올리고 아직 한 번도 맞추거나 옮기지 않았다 — 이때의 배율은 옛 원본의 것이라 가운데 두기가 따르지 않는다.
+    private bool _freshImage;
 
     public ImageViewerView()
     {
@@ -39,17 +48,19 @@ public partial class ImageViewerView : UserControl
         {
             if (e.OldValue is ImageViewerViewModel old)
             {
-                old.FitRequested -= FitToScreen;
+                old.FitRequested -= OnNewImage;
+                old.CenterRequested -= CenterOn;
             }
 
             if (e.NewValue is ImageViewerViewModel viewer)
             {
-                viewer.FitRequested += FitToScreen;
+                viewer.FitRequested += OnNewImage;
+                viewer.CenterRequested += CenterOn;
             }
         };
 
-        Scroll.SizeChanged += (_, _) => FitIfPending();
-        IsVisibleChanged += (_, _) => FitIfPending();
+        Scroll.SizeChanged += (_, _) => RunPending();
+        IsVisibleChanged += (_, _) => RunPending();
     }
 
     private ImageViewerViewModel? Viewer => DataContext as ImageViewerViewModel;
@@ -91,28 +102,72 @@ public partial class ImageViewerView : UserControl
 
     private void ZoomAtCenter(double newZoom) => ZoomAt(Scroll.ViewportWidth / 2, Scroll.ViewportHeight / 2, newZoom);
 
-    private void FitToScreen()
+    private void OnNewImage()
     {
-        _fitPending = true;
-        FitIfPending();
+        _freshImage = true;
+        FitToScreen();
     }
 
-    private void FitIfPending()
+    private void FitToScreen()
+    {
+        _pending = Fit;
+        RunPending();
+    }
+
+    /// <summary>
+    /// 원본 (x, y) 를 화면 가운데에. 100% 보다 작게 보고 있었으면 100% 로 — 결함이 실제 픽셀로 보이게(이미 더 크면 그대로).
+    /// ★ 막 올린 원본이면 100% — 그때 배율은 옛 원본을 보던 값이다.
+    /// </summary>
+    private void CenterOn(double x, double y)
+    {
+        _pending = () => Center(x, y);
+        RunPending();
+    }
+
+    private void RunPending()
         => Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
         {
-            if (!_fitPending || Viewer is not { HasImage: true } viewer || !IsVisible || Scroll.ActualWidth <= 0 || Scroll.ActualHeight <= 0)
+            if (_pending is not { } action || Viewer is not { HasImage: true } || !IsVisible || Scroll.ActualWidth <= 0 || Scroll.ActualHeight <= 0)
             {
                 return;
             }
 
-            _fitPending = false;
-
-            // 스크롤 막대가 없는 크기로 맞춘다 — 맞춘 뒤에는 막대가 사라진다.
-            viewer.Zoom = ViewportTransform.FitScale(viewer.ImageWidth, viewer.ImageHeight, Scroll.ActualWidth, Scroll.ActualHeight);
-            Scroll.UpdateLayout();
-            Scroll.ScrollToHorizontalOffset(0);
-            Scroll.ScrollToVerticalOffset(0);
+            _pending = null;
+            action();
         }));
+
+    private void Fit()
+    {
+        if (Viewer is not { } viewer)
+        {
+            return;
+        }
+
+        _freshImage = false;
+
+        // 스크롤 막대가 없는 크기로 맞춘다 — 맞춘 뒤에는 막대가 사라진다.
+        viewer.Zoom = ViewportTransform.FitScale(viewer.ImageWidth, viewer.ImageHeight, Scroll.ActualWidth, Scroll.ActualHeight);
+        Scroll.UpdateLayout();
+        Scroll.ScrollToHorizontalOffset(0);
+        Scroll.ScrollToVerticalOffset(0);
+    }
+
+    private void Center(double x, double y)
+    {
+        if (Viewer is not { } viewer)
+        {
+            return;
+        }
+
+        double zoom = _freshImage ? 1 : Math.Max(viewer.Zoom, 1);
+        _freshImage = false;
+        viewer.Zoom = zoom;
+        Scroll.UpdateLayout();
+
+        ViewportTransform target = RegionTool.CenteredOn(x, y, zoom, Scroll.ViewportWidth, Scroll.ViewportHeight);
+        Scroll.ScrollToHorizontalOffset(target.OriginX * zoom);
+        Scroll.ScrollToVerticalOffset(target.OriginY * zoom);
+    }
 
     private void OnFit(object sender, RoutedEventArgs e) => FitToScreen();
 
@@ -171,6 +226,63 @@ public partial class ImageViewerView : UserControl
         // ★ 판 위 좌표 = 원본 픽셀(배율은 판에 걸려 있다).
         Point onBoard = e.GetPosition(Board);
         Viewer?.PointAt(onBoard.X, onBoard.Y);
+
+        if (_drawFrom is { } start)
+        {
+            Stretch(start, onBoard);
+        }
+    }
+
+    /// <summary>왼쪽 버튼 누름 — 그리기 도구면 끌기 시작. '보기' 면 아무것도 안 한다.</summary>
+    private void OnDrawStart(object sender, MouseButtonEventArgs e)
+    {
+        if (Viewer is not { HasImage: true, Tool: not ViewerTool.View })
+        {
+            return;
+        }
+
+        _drawFrom = e.GetPosition(Board);
+        Stretch(_drawFrom.Value, _drawFrom.Value);
+        Rubber.Visibility = Visibility.Visible;
+        Board.CaptureMouse();
+        e.Handled = true;
+    }
+
+    /// <summary>왼쪽 버튼 뗌 — 끈 사각형(원본 px)을 뷰모델에 넘긴다. 크기 · 도장 규칙은 뷰모델이 정한다.</summary>
+    private void OnDrawEnd(object sender, MouseButtonEventArgs e)
+    {
+        if (_drawFrom is not { } start)
+        {
+            return;
+        }
+
+        Point end = e.GetPosition(Board);
+        EndDraw();
+        Viewer?.PlaceRegion(start.X, start.Y, end.X, end.Y);
+        e.Handled = true;
+    }
+
+    /// <summary>끄는 중에 마우스를 놓쳤다(다른 창으로 넘어감 등) — 그리지 않고 접는다.</summary>
+    private void OnDrawLost(object sender, MouseEventArgs e) => EndDraw();
+
+    private void EndDraw()
+    {
+        _drawFrom = null;
+        Rubber.Visibility = Visibility.Collapsed;
+
+        if (Board.IsMouseCaptured)
+        {
+            Board.ReleaseMouseCapture();
+        }
+    }
+
+    /// <summary>고무줄 사각형을 두 점(원본 px) 사이로 — 거꾸로 끌어도 같은 사각형.</summary>
+    private void Stretch(Point a, Point b)
+    {
+        Canvas.SetLeft(Rubber, Math.Min(a.X, b.X));
+        Canvas.SetTop(Rubber, Math.Min(a.Y, b.Y));
+        Rubber.Width = Math.Abs(b.X - a.X);
+        Rubber.Height = Math.Abs(b.Y - a.Y);
     }
 
     private void OnMouseLeave(object sender, MouseEventArgs e) => Viewer?.ClearCursor();

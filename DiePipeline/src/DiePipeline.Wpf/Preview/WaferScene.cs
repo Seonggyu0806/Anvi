@@ -25,10 +25,11 @@ public sealed class WaferScene : IDisposable
 
     private WaferScene(
         IImageSource source, string title, Mat? template, IReadOnlyList<PointF> expected, IReadOnlyList<PlantedDefect> truth,
-        WaferCircle? circle = null)
+        WaferCircle? circle = null, string? path = null)
     {
         Source = source;
         Title = title;
+        Path = path;
         Template = template;
         Expected = expected;
         Truth = truth;
@@ -41,6 +42,9 @@ public sealed class WaferScene : IDisposable
     public IImageSource Source { get; }
 
     public string Title { get; }
+
+    /// <summary>원본 파일 경로 — 원본 뷰어가 같은 파일을 연다. 합성이면 null(뷰어에는 복사본을 올린다).</summary>
+    public string? Path { get; }
 
     public BitmapSource Overview { get; }
 
@@ -112,7 +116,7 @@ public sealed class WaferScene : IDisposable
 
         try
         {
-            return new WaferScene(source, Path.GetFileName(path), null, [], []);
+            return new WaferScene(source, System.IO.Path.GetFileName(path), null, [], [], path: path);
         }
         catch
         {
