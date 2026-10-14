@@ -239,6 +239,33 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
         return $"웨이퍼 에디터 {node.Id} 에 표식 자리 {expected.Count}개 · die(0,0) 원점 ({Text(origin.X)}, {Text(origin.Y)}) 를 썼습니다";
     }
 
+    /// <summary>
+    /// 원본 뷰어의 '특징 등록' — 표식 조각 파일을 InspectDies 의 <c>features</c> 로(하나로 바꾼다 — 실행기는 1장만 쓴다),
+    /// 설계 자리 · 원점은 <see cref="ApplyAlignment"/> 와 같은 길로 쓴다.
+    /// ★ 경로는 레시피 파일 기준 상대로 적는다(레시피를 아직 저장 안 했으면 절대 경로).
+    /// ★ 두 블록이 다 있어야 쓴다 — 하나만 바뀐 반쪽 레시피를 만들지 않는다.
+    /// </summary>
+    public string RegisterFeature(string templateFile, IReadOnlyList<PointF> expected, PointF origin)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(templateFile);
+
+        NodeViewModel[] inspects = [.. Editor.Nodes.Where(n => !n.IsContext && n.Type == "InspectDies")];
+
+        if (inspects.Length != 1)
+        {
+            return $"레시피에는 못 씀 — InspectDies 블록이 하나여야 합니다(지금 {inspects.Length}개)";
+        }
+
+        if (SolveBlock() is null)
+        {
+            return ApplyAlignment(expected, origin);
+        }
+
+        inspects[0].Lists.First(l => l.Name == "features").ReplaceRows([[EditorPaths.Relative(Editor.Folder, templateFile)]]);
+
+        return $"{inspects[0].Id} 에 조각 경로 · " + ApplyAlignment(expected, origin);
+    }
+
     private NodeViewModel? SolveBlock()
     {
         NodeViewModel[] blocks = [.. Editor.Nodes.Where(n => !n.IsContext && n.Type == "SolveAlignment")];

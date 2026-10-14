@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using DiePipeline.Core.Configuration;
 using DiePipeline.Core.Domain;
 using DiePipeline.Core.Imaging;
 using DiePipeline.Cv.Imaging;
@@ -36,7 +37,8 @@ public enum ViewerTool
 ///   다음 단계(영역 그리기 · 결함 표시)도 좌표를 다시 계산하지 않는다.
 /// ★ 보이는 방법(축소 배율 · 선명 조각이 필요한가 · 보이는 영역)은 <see cref="ViewportPlanner"/> 가 정한다 — 화면 없이 시험된다.
 ///   여기는 이미지 소스에서 읽어 그림으로 바꾸는 일만 한다.
-/// ★ 아무것도 저장하지 않는다 — 영역은 화면에만 있다(저장은 다음 단계, 레포 밖에만).
+/// ★ 파일로 남기기 — 영역(<c>*.case.json</c>, 교수님 형식) · 골든 패치 · 표식 조각. 모두 원본에서 나온 회사 자료라
+///   <b>레포 안이면 저장을 거부</b>한다(<see cref="RepositoryGuard"/>).
 /// </summary>
 public sealed class ImageViewerViewModel : ObservableObject, IDisposable
 {
@@ -56,8 +58,14 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
     private double _zoom = 1;
     private const string DrawHint = "도구를 고르고 그림 위를 왼쪽 버튼으로 끌어 영역을 그립니다";
 
+    private const string CaseFilter = "검사 케이스 (*.case.json)|*.case.json|JSON (*.json)|*.json";
+    private const string PngFilter = "PNG (*.png)|*.png";
+
     private readonly RelayCommand _applyDieCommand;
     private readonly RelayCommand _applyWaferCommand;
+    private readonly RelayCommand _saveCaseCommand;
+    private readonly RelayCommand _exportGoldenCommand;
+    private readonly RelayCommand _registerFeatureCommand;
     private string _cursorText = string.Empty;
     private ViewerTool _tool = ViewerTool.View;
     private string _statusText = DrawHint;
@@ -65,6 +73,7 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
     private double _originY;
     private Func<PreviewInput, string>? _applyToDie;
     private Func<IReadOnlyList<PointF>, PointF, string>? _applyToWafer;
+    private Func<string, IReadOnlyList<PointF>, PointF, string>? _registerToWafer;
 
     public ImageViewerViewModel()
     {
@@ -74,6 +83,21 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         ClearMarkersCommand = new RelayCommand(ClearMarkers);
         _applyDieCommand = new RelayCommand(ApplyDie, () => _applyToDie is not null && RoiRegions.Count > 0 && ChipRegions.Count > 0);
         _applyWaferCommand = new RelayCommand(ApplyWafer, () => _applyToWafer is not null && FeatureRegions.Count >= 2);
+        _saveCaseCommand = new RelayCommand(SaveCase, () => _path is not null && RoiRegions.Count > 0 && ChipRegions.Count > 0);
+        LoadCaseCommand = new RelayCommand(LoadCaseWithDialog);
+        _exportGoldenCommand = new RelayCommand(ExportGolden, () => _source is not null && ChipRegions.Count > 0);
+        _registerFeatureCommand = new RelayCommand(RegisterFeature, () => _registerToWafer is not null && FeatureRegions.Count >= 2);
+
+        PickSavePath = (filter, name) =>
+        {
+            SaveFileDialog dialog = new() { Filter = filter, FileName = name };
+            return dialog.ShowDialog() == true ? dialog.FileName : null;
+        };
+        PickOpenPath = filter =>
+        {
+            OpenFileDialog dialog = new() { Filter = filter };
+            return dialog.ShowDialog() == true ? dialog.FileName : null;
+        };
     }
 
     /// <summary>새 원본을 열었다 — 화면이 그림 전체가 보이게 맞춘다(배율은 화면 크기를 아는 쪽이 정한다).</summary>
@@ -101,6 +125,24 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
     /// <summary>'웨이퍼 에디터에 적용' — 정렬 특징이 2개 이상이어야 누를 수 있다.</summary>
     public ICommand ApplyWaferCommand => _applyWaferCommand;
 
+    /// <summary>'영역 저장…' — ROI · 정상 die 를 케이스 파일로. 사진이 파일일 때만(케이스가 사진 경로를 적는다).</summary>
+    public ICommand SaveCaseCommand => _saveCaseCommand;
+
+    /// <summary>'영역 불러오기…' — 케이스 파일의 영역을 목록에 올린다. 사진이 다르면 그 사진을 연다.</summary>
+    public ICommand LoadCaseCommand { get; }
+
+    /// <summary>'골든 패치 내보내기…' — 정상 die 마다 png 한 장(이름_0.png, 이름_1.png …).</summary>
+    public ICommand ExportGoldenCommand => _exportGoldenCommand;
+
+    /// <summary>'특징 등록…' — 첫 정렬 특징을 표식 조각 png 로 저장하고 웨이퍼 레시피에 조각 · 설계 자리 · 원점을 쓴다.</summary>
+    public ICommand RegisterFeatureCommand => _registerFeatureCommand;
+
+    /// <summary>저장할 파일 고르기(거름, 기본 이름) — 고르지 않으면 null. 시험에서 바꿔 끼운다.</summary>
+    public Func<string, string, string?> PickSavePath { get; set; }
+
+    /// <summary>열 파일 고르기(거름) — 고르지 않으면 null. 시험에서 바꿔 끼운다.</summary>
+    public Func<string, string?> PickOpenPath { get; set; }
+
     /// <summary>
     /// 다이 미리보기를 이 영역으로 돌리는 곳 — 창이 이어 준다. 돌려준 글자를 아래에 띄운다.
     /// ★ 뷰어는 다이 에디터를 모른다 — 넘기기만 한다(교수님 앱과 같다).
@@ -123,6 +165,19 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         {
             _applyToWafer = value;
             _applyWaferCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    /// 표식 조각 파일 · 설계 자리 · 원점을 웨이퍼 레시피에 쓰는 곳 — 창이 이어 준다(<see cref="ApplyToWafer"/> 에 조각 파일이 더해진 것).
+    /// </summary>
+    public Func<string, IReadOnlyList<PointF>, PointF, string>? RegisterToWafer
+    {
+        get => _registerToWafer;
+        set
+        {
+            _registerToWafer = value;
+            _registerFeatureCommand.RaiseCanExecuteChanged();
         }
     }
 
@@ -436,6 +491,9 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
 
         _applyDieCommand.RaiseCanExecuteChanged();
         _applyWaferCommand.RaiseCanExecuteChanged();
+        _saveCaseCommand.RaiseCanExecuteChanged();
+        _exportGoldenCommand.RaiseCanExecuteChanged();
+        _registerFeatureCommand.RaiseCanExecuteChanged();
     }
 
     /// <summary>
@@ -480,6 +538,211 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         PointF[] expected = [.. features.Select(f => RegionTool.Expected(f, OriginX, OriginY))];
         StatusText = _applyToWafer(expected, new PointF(OriginX, OriginY));
     }
+
+    // ───────────────────────── 파일로 남기기(레포 밖에만) ─────────────────────────
+
+    /// <summary>영역을 케이스 파일로 — 다이 에디터에 적용할 때와 같은 점검(크기 · 그림 안)을 지나야 쓴다.</summary>
+    private void SaveCase()
+    {
+        if (_source is null || _path is not { } imagePath || RoiRegions.Count == 0)
+        {
+            return;
+        }
+
+        Roi roi = RoiRegions[0].Area;
+        Roi[] chips = [.. ChipRegions.Select(c => c.Area)];
+
+        if (RegionTool.CheckDieRegions(roi, chips, ImageWidth, ImageHeight) is { } problem)
+        {
+            StatusText = "저장 못 함 — " + problem;
+            return;
+        }
+
+        if (PickOutside(CaseFilter, "regions.case.json") is not { } file)
+        {
+            return;
+        }
+
+        Write(() => InspectionCaseFile.Save(file, imagePath, roi, chips),
+            $"영역 저장 — {Path.GetFileName(file)} (ROI 1 · 정상 die {chips.Length})");
+    }
+
+    private void LoadCaseWithDialog()
+    {
+        if (PickOpenPath(CaseFilter) is { } file)
+        {
+            LoadCase(file);
+        }
+    }
+
+    /// <summary>
+    /// 케이스 파일의 영역을 목록에 올린다. 사진이 지금 것과 다르면 그 사진을 연다.
+    /// ★ 영역이 그림 밖이거나 크기가 다르면 <b>잘라 맞추지 않고 거부</b>한다 — 케이스와 사진 짝이 틀린 것이다.
+    /// ★ 올리기만 한다 — 돌리는 것은 지금처럼 '다이 에디터에 적용'.
+    /// </summary>
+    public void LoadCase(string caseFile)
+    {
+        InspectionCase @case;
+        string imagePath;
+
+        try
+        {
+            (@case, imagePath) = InspectionCaseFile.Read(caseFile);
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            StatusText = "불러오기 못 함 — " + error.Message;
+            return;
+        }
+
+        if (!File.Exists(imagePath))
+        {
+            StatusText = $"불러오기 못 함 — 케이스의 사진이 없습니다: {imagePath}";
+            return;
+        }
+
+        if (!Showing(imagePath))
+        {
+            Open(imagePath);
+
+            if (!Showing(imagePath))
+            {
+                StatusText = "불러오기 못 함 — 케이스의 사진을 열지 못했습니다(아래 줄을 보세요)";
+                return;
+            }
+        }
+
+        if (RegionTool.CheckDieRegions(@case.Roi, @case.ChipRegions, ImageWidth, ImageHeight) is { } problem)
+        {
+            StatusText = $"불러오기 거부 — {problem} · 케이스와 사진({ImageWidth}×{ImageHeight}) 짝을 확인하세요";
+            return;
+        }
+
+        RoiRegions.Clear();
+        RoiRegions.Add(new RegionViewModel(RegionKind.Roi, @case.Roi, Remove));
+        ChipRegions.Clear();
+
+        foreach (Roi chip in @case.ChipRegions)
+        {
+            ChipRegions.Add(new RegionViewModel(RegionKind.Chip, chip, Remove));
+        }
+
+        RebuildRegions();
+        StatusText = $"영역 불러옴 — {Path.GetFileName(caseFile)} (ROI 1 · 정상 die {ChipRegions.Count}) · '다이 에디터에 적용' 으로 돌리세요";
+    }
+
+    /// <summary>정상 die 마다 원본에서 잘라 png 로 — 고른 이름 뒤에 _0, _1, … 을 붙인다(교수님과 같다).</summary>
+    private void ExportGolden()
+    {
+        if (_source is null || ChipRegions.Count == 0 || PickOutside(PngFilter, "golden.png") is not { } file)
+        {
+            return;
+        }
+
+        string folder = Path.GetDirectoryName(Path.GetFullPath(file))!;
+        string name = Path.GetFileNameWithoutExtension(file);
+        Roi[] chips = [.. ChipRegions.Select(c => c.Area)];
+
+        Write(() =>
+            {
+                for (int i = 0; i < chips.Length; i++)
+                {
+                    SavePatch(chips[i], Path.Combine(folder, $"{name}_{i}.png"));
+                }
+            },
+            $"골든 패치 {chips.Length}장 — {name}_0.png … {name}_{chips.Length - 1}.png");
+    }
+
+    /// <summary>
+    /// 첫 정렬 특징을 표식 조각 png 로 저장하고, 웨이퍼 레시피에 조각 파일 · 설계 자리 · 원점을 쓴다.
+    /// ★ 정렬은 같은 표식을 여러 자리에서 찾는다 — 조각은 첫 특징 하나, 자리는 특징 전부.
+    /// </summary>
+    private void RegisterFeature()
+    {
+        if (_source is null || _registerToWafer is null)
+        {
+            return;
+        }
+
+        Roi[] features = [.. FeatureRegions.Select(f => f.Area)];
+
+        if (RegionTool.CheckFeatures(features, ImageWidth, ImageHeight) is { } problem)
+        {
+            StatusText = "등록 못 함 — " + problem;
+            return;
+        }
+
+        if (PickOutside(PngFilter, "mark.png") is not { } file)
+        {
+            return;
+        }
+
+        if (!Write(() => SavePatch(features[0], file), string.Empty))
+        {
+            return;
+        }
+
+        PointF[] expected = [.. features.Select(f => RegionTool.Expected(f, OriginX, OriginY))];
+        StatusText = $"표식 조각 저장 — {Path.GetFileName(file)} · " + _registerToWafer(file, expected, new PointF(OriginX, OriginY));
+    }
+
+    /// <summary>
+    /// 저장할 곳을 고른다. ★ 레포 안이면 쓰지 않고 null — 원본에서 나온 것은 회사 자료다.
+    /// </summary>
+    private string? PickOutside(string filter, string name)
+    {
+        if (PickSavePath(filter, name) is not { } file)
+        {
+            return null;
+        }
+
+        if (RepositoryGuard.RepositoryOf(file) is { } repository)
+        {
+            StatusText = $"저장 안 함 — 레포 안입니다({repository}). 원본에서 나온 것은 레포 밖 폴더에 저장하세요";
+            return null;
+        }
+
+        return file;
+    }
+
+    /// <summary>쓰기 — 실패하면 까닭을 띄우고 false. 성공하면 <paramref name="done"/> 을 띄운다(빈 글자면 그대로 둔다).</summary>
+    private bool Write(Action write, string done)
+    {
+        try
+        {
+            write();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or OpenCVException)
+        {
+            StatusText = "저장 못 함 — " + error.Message;
+            return false;
+        }
+
+        if (done.Length > 0)
+        {
+            StatusText = done;
+        }
+
+        return true;
+    }
+
+    /// <summary>원본에서 그 영역만 읽어 8비트 png 로 — 읽을 때 0~1 로 바뀐 값을 다시 0~255 로.</summary>
+    private void SavePatch(Roi region, string file)
+    {
+        using Mat patch = _source!.ReadRegion(region);
+        using Mat eightBit = new();
+        patch.ConvertTo(eightBit, MatType.CV_8UC1, 255.0);
+
+        if (!Cv2.ImWrite(file, eightBit))
+        {
+            throw new IOException($"png 를 쓰지 못했습니다: {file}");
+        }
+    }
+
+    /// <summary>지금 이 파일을 보고 있나(경로를 풀어서 비교).</summary>
+    private bool Showing(string path)
+        => _path is { } current
+           && string.Equals(Path.GetFullPath(current), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase);
 
     private void RaiseMarkers()
     {

@@ -130,6 +130,7 @@ public sealed class MainViewModel : ObservableObject
         // ★ 원본 뷰어 ↔ 두 에디터. 뷰어는 에디터를 모르고, 창이 잇는다(교수님 앱과 같다).
         Viewer.ApplyToDie = ApplyViewerRegions;
         Viewer.ApplyToWafer = WaferEditor.ApplyAlignment;
+        Viewer.RegisterToWafer = WaferEditor.RegisterFeature;
         Viewer.SourceChanged += OnViewerSourceChanged;
 
         _useSyntheticCommand = new RelayCommand(UseSynthetic, () => _previewInput is not null);

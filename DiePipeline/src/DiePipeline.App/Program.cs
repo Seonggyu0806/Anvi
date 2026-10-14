@@ -135,16 +135,20 @@ public static class Program
         Describe(source);
 
         Stopwatch reading = Stopwatch.StartNew();
-        List<Mat> cells = CutCells(source, options);
+        List<Mat> cells = options.Case is { } inspectionCase ? CaseCells(source, inspectionCase) : CutCells(source, options);
         reading.Stop();
 
         try
         {
-            Mat roi = cells[options.CellIndex];
-            List<Mat> neighbors = cells.Where((_, i) => i != options.CellIndex).ToList();
+            // 케이스면 0번이 검사 ROI, 나머지가 정상 die — 칸 자르기와 같은 모양으로 둔다.
+            int inspectIndex = options.Case is null ? options.CellIndex : 0;
+            Mat roi = cells[inspectIndex];
+            List<Mat> neighbors = cells.Where((_, i) => i != inspectIndex).ToList();
 
-            Console.WriteLine($"셀      피치 {options.Pitch}px · 시작 ({options.OriginX},{options.OriginY}) · " +
-                              $"{cells.Count}칸 중 {options.CellIndex}번을 검사, 나머지 {neighbors.Count}칸이 이웃");
+            Console.WriteLine(options.Case is { } c
+                ? $"케이스  {options.CasePath} · ROI {c.Roi} · 정상 die {c.ChipRegions.Count}개가 이웃"
+                : $"셀      피치 {options.Pitch}px · 시작 ({options.OriginX},{options.OriginY}) · " +
+                  $"{cells.Count}칸 중 {options.CellIndex}번을 검사, 나머지 {neighbors.Count}칸이 이웃");
             Console.WriteLine($"        읽기 {reading.Elapsed.TotalMilliseconds:F0} ms");
             Console.WriteLine();
 
@@ -226,20 +230,48 @@ public static class Program
     /// </summary>
     private static void WarnIfInsideRepository(string path)
     {
-        DirectoryInfo? folder = new FileInfo(Path.GetFullPath(path)).Directory;
-
-        while (folder is not null)
+        // ★ 판단은 화면과 같은 곳(RepositoryGuard) — 화면은 거부하고, 명령행은 경고한다.
+        if (RepositoryGuard.RepositoryOf(path) is { } repository)
         {
-            if (Directory.Exists(Path.Combine(folder.FullName, ".git")))
+            Console.WriteLine();
+            Console.WriteLine($"⚠ 저장 위치가 git 저장소 안입니다 — {repository}");
+            Console.WriteLine("  실데이터에서 잘라낸 것은 레포 밖에 두세요.");
+            Console.WriteLine();
+        }
+    }
+
+    /// <summary>케이스의 검사 ROI(0번) · 정상 die 를 원본에서 읽는다. ★ 그림 밖이면 읽기 전에 멈춘다 — 케이스와 사진 짝이 틀린 것.</summary>
+    private static List<Mat> CaseCells(IImageSource source, InspectionCase inspectionCase)
+    {
+        Roi[] regions = [inspectionCase.Roi, .. inspectionCase.ChipRegions];
+
+        foreach (Roi region in regions)
+        {
+            if (region.X < 0 || region.Y < 0 || region.Right > source.Width || region.Bottom > source.Height)
             {
-                Console.WriteLine();
-                Console.WriteLine($"⚠ 저장 위치가 git 저장소 안입니다 — {folder.FullName}");
-                Console.WriteLine("  실데이터에서 잘라낸 것은 레포 밖에 두세요.");
-                Console.WriteLine();
-                return;
+                throw new ArgumentException($"케이스 영역 {region} 이 사진({source.Width}×{source.Height}) 밖입니다 — 케이스와 사진 짝을 확인하세요");
+            }
+        }
+
+        List<Mat> cells = [];
+
+        try
+        {
+            foreach (Roi region in regions)
+            {
+                cells.Add(source.ReadRegion(region));
             }
 
-            folder = folder.Parent;
+            return cells;
+        }
+        catch
+        {
+            foreach (Mat cell in cells)
+            {
+                cell.Dispose();
+            }
+
+            throw;
         }
     }
 
@@ -291,6 +323,7 @@ public static class Program
         Console.WriteLine("""
             사용법
               diepipe run   -r <레시피.json> -i <이미지> [옵션]     레시피를 돌린다
+              diepipe run   -r <레시피.json> --case <케이스.case.json>  케이스의 사진 · ROI · 정상 die 로 돌린다
               diepipe probe -i <이미지> [옵션]                      원본 생김새를 본다
               diepipe wafer -i <이미지> --e1 <레시피.json> [옵션]   웨이퍼 한 장을 통째로
               diepipe wafer -i <이미지> --recipe <웨이퍼.json>      웨이퍼 레시피 파일 하나로
@@ -301,6 +334,11 @@ public static class Program
               --origin <x,y>    첫 칸의 왼쪽 위        기본 0,0
               --count <n>       자를 칸 수            기본 6
               --cell <i>        그중 검사할 칸         기본 0
+
+            케이스 (원본 뷰어의 '영역 저장…' 이 쓴 파일 — 교수님 *.case.json 과 같은 형식)
+              --case <경로>     사진 · 검사 ROI · 정상 die 를 케이스에서 읽는다
+                                ★ -i · --pitch · --origin · --count · --cell 과 같이 못 쓴다
+                                ★ 사진 경로는 케이스 파일 기준이다 · 케이스도 레포 밖에 둔다
 
             probe 전용
               --roi <x,y,w,h>   그 영역만 뜯어 본다
@@ -408,10 +446,17 @@ public static class Program
 
         public string? OutPath { get; init; }
 
+        /// <summary>케이스 파일 — 주면 사진 · ROI · 정상 die 를 여기서 읽는다(<see cref="ImagePath"/> 는 케이스의 사진).</summary>
+        public string? CasePath { get; init; }
+
+        public InspectionCase? Case { get; init; }
+
         public static Options Parse(string[] args, bool needRecipe)
         {
             string? recipe = null;
             string? image = null;
+            string? casePath = null;
+            List<string> cellFlags = [];
             int pitch = 100;
             int originX = 0;
             int originY = 0;
@@ -430,10 +475,11 @@ public static class Program
                 switch (flag)
                 {
                     case "-r" or "--recipe": recipe = Next(args, ref i, flag); break;
-                    case "-i" or "--image": image = Next(args, ref i, flag); break;
-                    case "--pitch": pitch = int.Parse(Next(args, ref i, flag)); break;
-                    case "--count": count = int.Parse(Next(args, ref i, flag)); break;
-                    case "--cell": cell = int.Parse(Next(args, ref i, flag)); break;
+                    case "-i" or "--image": image = Next(args, ref i, flag); cellFlags.Add(flag); break;
+                    case "--case" when needRecipe: casePath = Next(args, ref i, flag); break;
+                    case "--pitch": pitch = int.Parse(Next(args, ref i, flag)); cellFlags.Add(flag); break;
+                    case "--count": count = int.Parse(Next(args, ref i, flag)); cellFlags.Add(flag); break;
+                    case "--cell": cell = int.Parse(Next(args, ref i, flag)); cellFlags.Add(flag); break;
                     case "--save-mask": maskPath = Next(args, ref i, flag); break;
                     case "--mask-key": maskKey = Next(args, ref i, flag); break;
                     case "--overview": overview = int.Parse(Next(args, ref i, flag)); break;
@@ -443,6 +489,7 @@ public static class Program
                         int[] origin = Numbers(Next(args, ref i, flag), 2, "--origin 은 x,y 형식이어야 합니다 (예: 50,112)");
                         originX = origin[0];
                         originY = origin[1];
+                        cellFlags.Add(flag);
                         break;
 
                     case "--roi":
@@ -453,6 +500,19 @@ public static class Program
                     default:
                         throw new ArgumentException($"모르는 옵션입니다: {flag}");
                 }
+            }
+
+            InspectionCase? inspectionCase = null;
+
+            if (casePath is not null)
+            {
+                // ★ 사진 · 영역은 케이스 한 곳에서만 — 명령줄 값과 섞이면 무엇으로 돌았는지 모른다.
+                if (cellFlags.Count > 0)
+                {
+                    throw new ArgumentException($"--case 는 사진 · ROI · 정상 die 를 케이스에서 읽습니다 — {string.Join(" ", cellFlags.Distinct())} 와 같이 못 씁니다");
+                }
+
+                (inspectionCase, image) = InspectionCaseFile.Read(casePath);
             }
 
             if (image is null)
@@ -484,6 +544,8 @@ public static class Program
                 Roi = roi,
                 Overview = overview,
                 OutPath = outPath,
+                CasePath = casePath,
+                Case = inspectionCase,
             };
         }
 

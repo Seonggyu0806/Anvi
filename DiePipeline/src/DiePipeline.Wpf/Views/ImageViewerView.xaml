@@ -102,6 +102,15 @@
                     <ItemsControl ItemsSource="{Binding ChipRegions}" ItemTemplate="{StaticResource RegionRow}" />
                     <Button Content="다이 에디터에 적용" Command="{Binding ApplyDieCommand}" Margin="0,6,0,0" Padding="4,2"
                             ToolTip="다이 미리보기를 합성 견본 대신 이 ROI · 정상 die 로 돌린다 — 아무것도 저장하지 않는다" />
+                    <!-- 파일로 남기기 — 원본에서 나온 회사 자료라 레포 안이면 거부한다 -->
+                    <UniformGrid Columns="3" Margin="0,4,0,0">
+                        <Button Content="영역 저장…" Command="{Binding SaveCaseCommand}" Margin="0,0,2,0" Padding="2,1"
+                                ToolTip="ROI · 정상 die 를 케이스 파일(*.case.json, 교수님 형식)로 — 레포 밖에만. 사진이 파일일 때만" />
+                        <Button Content="영역 열기…" Command="{Binding LoadCaseCommand}" Margin="1,0" Padding="2,1"
+                                ToolTip="케이스 파일의 영역을 목록에 올린다 — 사진이 다르면 그 사진을 연다" />
+                        <Button Content="골든 저장…" Command="{Binding ExportGoldenCommand}" Margin="2,0,0,0" Padding="2,1"
+                                ToolTip="정상 die 마다 png 한 장(이름_0.png …) — 레포 밖에만" />
+                    </UniformGrid>
 
                     <!-- 정렬 특징 -->
                     <DockPanel Margin="0,14,0,2">
@@ -122,6 +131,8 @@
                     </Grid>
                     <Button Content="웨이퍼 에디터에 적용(설계 자리)" Command="{Binding ApplyWaferCommand}" Margin="0,6,0,0" Padding="4,2"
                             ToolTip="표식 설계 자리 = 특징 왼쪽 위 − die(0,0) 원점 → SolveAlignment 의 expected · firstDieX/Y 에 쓴다. 2개 이상" />
+                    <Button Content="특징 등록…(표식 조각 저장 + 적용)" Command="{Binding RegisterFeatureCommand}" Margin="0,4,0,0" Padding="4,2"
+                            ToolTip="첫 특징을 표식 조각 png 로 저장(레포 밖에만)하고 InspectDies 의 표식 조각 · 설계 자리 · 원점을 함께 쓴다" />
 
                     <!-- 결함 표시(웨이퍼 오버레이에서 넘어왔을 때) -->
                     <DockPanel Margin="0,14,0,0" Visibility="{Binding HasMarkers, Converter={StaticResource ShowWhenTrue}}">
