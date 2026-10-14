@@ -82,6 +82,8 @@ public sealed class MainViewModel : ObservableObject
     private PointF? _syncedOrigin;
     private readonly RelayCommand _useSyntheticCommand;
     private readonly RelayCommand _showDefectInViewerCommand;
+    private readonly RelayCommand _exportReportCommand;
+    private string _reportText = string.Empty;
 
     public MainViewModel()
     {
@@ -138,6 +140,14 @@ public sealed class MainViewModel : ObservableObject
             ShowDefectInViewer, () => WaferEditor.SelectedDefect is { AbsX: not null, AbsY: not null } && WaferEditor.Scene is not null);
 
         WaferEditor.PropertyChanged += OnWaferEditorChanged;
+
+        _exportReportCommand = new RelayCommand(ExportReport, () => Defects.Count > 0);
+        Defects.CollectionChanged += (_, _) => _exportReportCommand.RaiseCanExecuteChanged();
+        PickReportPath = () =>
+        {
+            Microsoft.Win32.SaveFileDialog dialog = new() { Filter = "CSV (*.csv)|*.csv|JSON (*.json)|*.json", FileName = "defects" };
+            return dialog.ShowDialog() == true ? dialog.FileName : null;
+        };
     }
 
     /// <summary>지금 보이는 작업공간 — 맨 위 바의 단추가 바꾼다.</summary>
@@ -190,6 +200,19 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>'원본에서 보기' — 고른 웨이퍼 결함 자리로 원본 뷰어를 옮긴다(웨이퍼 오버레이의 결함 줄 더블클릭과 같다).</summary>
     public ICommand ShowDefectInViewerCommand => _showDefectInViewerCommand;
+
+    /// <summary>'결함 보고서…' — 지금 미리보기 결함을 CSV · JSON 으로(확장자로 고른다). 레포 안이면 거부.</summary>
+    public ICommand ExportReportCommand => _exportReportCommand;
+
+    /// <summary>보고서를 쓸 파일 고르기 — 고르지 않으면 null. 시험에서 바꿔 끼운다.</summary>
+    public Func<string?> PickReportPath { get; set; }
+
+    /// <summary>보고서 알림 — 다이 오버레이의 결함 목록 위.</summary>
+    public string ReportText
+    {
+        get => _reportText;
+        private set => SetField(ref _reportText, value);
+    }
 
     // ───────────────────────── 다이 오버레이 ─────────────────────────
 
@@ -339,6 +362,45 @@ public sealed class MainViewModel : ObservableObject
             Editor.StatusText = "미리보기 실패";
             return false;
         }
+    }
+
+    /// <summary>
+    /// 지금 미리보기 결함을 보고서로 쓴다(교수님 <c>DefectReport</c> 형식).
+    /// ★ 환산 값은 입력이 <b>원본</b>일 때만 뷰어의 µm/px 를 쓴다 — 합성 견본에 실제 µm 를 붙이면 지어낸 숫자가 된다.
+    /// ★ 실데이터에서 나온 숫자라 레포 안이면 쓰지 않는다.
+    /// </summary>
+    private void ExportReport()
+    {
+        if (Defects.Count == 0 || PickReportPath() is not { } file)
+        {
+            return;
+        }
+
+        if (RepositoryGuard.RepositoryOf(file) is { } repository)
+        {
+            ReportText = $"저장 안 함 — 레포 안입니다({repository}). 보고서는 레포 밖 폴더에 저장하세요";
+            return;
+        }
+
+        Calibration calibration = _previewInput is not null ? Viewer.Calibration : Calibration.Uncalibrated;
+        string source = _previewInput is { } input ? $"원본 {input.Title}" : "합성 견본";
+        Roi? roi = _previewInput?.Roi;
+        bool json = Path.GetExtension(file).Equals(".json", StringComparison.OrdinalIgnoreCase);
+
+        try
+        {
+            File.WriteAllText(file, json
+                ? DefectReport.ToJson([.. Defects], calibration, source, roi)
+                : DefectReport.ToCsv([.. Defects], calibration));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            ReportText = "저장 못 함 — " + error.Message;
+            return;
+        }
+
+        ReportText = $"보고서 저장 — {Path.GetFileName(file)} (결함 {Defects.Count}개 · "
+                     + (calibration.IsCalibrated ? $"{calibration.MicronsPerPixel} µm/px" : "미보정 — µm = px") + ")";
     }
 
     // ───────────────────────── 원본 뷰어 ↔ 에디터 ─────────────────────────

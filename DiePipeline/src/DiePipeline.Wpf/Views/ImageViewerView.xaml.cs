@@ -231,13 +231,23 @@ public partial class ImageViewerView : UserControl
         {
             Stretch(start, onBoard);
         }
+
+        Viewer?.MeasureHover(onBoard.X, onBoard.Y);
     }
 
-    /// <summary>왼쪽 버튼 누름 — 그리기 도구면 끌기 시작. '보기' 면 아무것도 안 한다.</summary>
+    /// <summary>왼쪽 버튼 누름 — 그리기 도구면 끌기 시작, '거리' 면 점 찍기. '보기' 면 아무것도 안 한다.</summary>
     private void OnDrawStart(object sender, MouseButtonEventArgs e)
     {
-        if (Viewer is not { HasImage: true, Tool: not ViewerTool.View })
+        if (Viewer is not { HasImage: true, Tool: not ViewerTool.View } viewer)
         {
+            return;
+        }
+
+        if (viewer.Tool == ViewerTool.Measure)
+        {
+            Point at = e.GetPosition(Board);
+            viewer.MeasureClick(at.X, at.Y);
+            e.Handled = true;
             return;
         }
 

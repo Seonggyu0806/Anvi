@@ -58,6 +58,10 @@
                 <Button Content="＋" Click="OnZoomIn" ToolTip="확대(휠 위로)" />
                 <Button Content="－" Click="OnZoomOut" ToolTip="축소(휠 아래로)" />
                 <TextBlock Text="{Binding ZoomText}" VerticalAlignment="Center" Margin="8,0" MinWidth="56" />
+                <Separator />
+                <TextBlock Text="µm/px " VerticalAlignment="Center" />
+                <TextBox Text="{Binding MicronsPerPixel}" Width="64" VerticalAlignment="Center"
+                         ToolTip="원본 픽셀 한 변이 몇 µm 인가 — raw 옆 설명 파일(micronsPerPixel)에서 채운다. 1 = 미보정(µm 를 적지 않음). 저장하지 않는다" />
             </ToolBar>
         </ToolBarTray>
 
@@ -86,7 +90,11 @@
                                      IsChecked="{Binding Tool, Converter={StaticResource ToolChecked}, ConverterParameter={x:Static vm:ViewerTool.Chip}}" />
                         <RadioButton Style="{StaticResource ToolButton}" Content="정렬 특징"
                                      IsChecked="{Binding Tool, Converter={StaticResource ToolChecked}, ConverterParameter={x:Static vm:ViewerTool.Feature}}" />
+                        <RadioButton Style="{StaticResource ToolButton}" Content="거리"
+                                     IsChecked="{Binding Tool, Converter={StaticResource ToolChecked}, ConverterParameter={x:Static vm:ViewerTool.Measure}}" />
                     </WrapPanel>
+                    <TextBlock Text="{Binding MeasureText}" Foreground="#C2410C" FontWeight="Bold" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Visibility="{Binding HasMeasure, Converter={StaticResource ShowWhenTrue}}" />
                     <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="11" Margin="0,2,0,0"
                                Text="첫 영역은 끈 크기로, 그다음은 같은 크기로 찍습니다(정상 die = ROI 크기). 칸: 이름 · x · y · 폭 · 높이(원본 px)" />
 
@@ -235,6 +243,14 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <!-- 거리 — 두 점 사이 선 + 글자. 선 두께 · 글자 크기는 화면에서 같게(배율로 나눈다) -->
+                    <Canvas IsHitTestVisible="False" Visibility="{Binding HasMeasure, Converter={StaticResource ShowWhenTrue}}">
+                        <Line X1="{Binding MeasureX1}" Y1="{Binding MeasureY1}" X2="{Binding MeasureX2}" Y2="{Binding MeasureY2}"
+                              Stroke="#FF7A00" StrokeThickness="{Binding RegionLine}" />
+                        <TextBlock Canvas.Left="{Binding MeasureX2}" Canvas.Top="{Binding MeasureY2}" Text="{Binding MeasureText}"
+                                   Foreground="White" Background="#CCFF7A00" FontSize="{Binding RegionLabelSize}" />
+                    </Canvas>
 
                     <!-- 끄는 중인 사각형(고무줄) -->
                     <Canvas IsHitTestVisible="False">

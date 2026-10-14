@@ -347,17 +347,25 @@
 
         <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#E5E7EB" />
 
-        <!-- 결함 목록 — 고르면 네모가 강조되고, 네모를 누르면 여기 줄이 골라진다 -->
+        <!-- 결함 목록 — 고르면 네모가 강조되고, 네모를 누르면 여기 줄이 골라진다.
+             위에 보고서(CSV · JSON — 원본 입력이면 뷰어의 µm/px 로 환산, 레포 안이면 거부) -->
         <GroupBox Grid.Column="2" Header="결함">
-            <DataGrid ItemsSource="{Binding Defects}" SelectedItem="{Binding SelectedDefect}" AutoGenerateColumns="False"
-                      IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal" FontSize="11">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="#" Binding="{Binding Id}" Width="36" />
-                    <DataGridTextColumn Header="위치" Binding="{Binding Bounds}" Width="*" />
-                    <DataGridTextColumn Header="면적" Binding="{Binding Area}" Width="52" />
-                    <DataGridTextColumn Header="밝기" Binding="{Binding MeanIntensity, StringFormat=F2}" Width="48" />
-                </DataGrid.Columns>
-            </DataGrid>
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="0,2,0,4">
+                    <Button Content="결함 보고서…" Command="{Binding ExportReportCommand}" HorizontalAlignment="Left" Padding="6,1"
+                            ToolTip="CSV 또는 JSON(확장자로 고른다) — px 값 + µm 환산. 원본 입력일 때만 뷰어의 µm/px, 합성 견본은 미보정. 레포 밖에만" />
+                    <TextBlock Text="{Binding ReportText}" TextWrapping="Wrap" Foreground="Gray" FontSize="11" />
+                </StackPanel>
+                <DataGrid ItemsSource="{Binding Defects}" SelectedItem="{Binding SelectedDefect}" AutoGenerateColumns="False"
+                          IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal" FontSize="11">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="#" Binding="{Binding Id}" Width="36" />
+                        <DataGridTextColumn Header="위치" Binding="{Binding Bounds}" Width="*" />
+                        <DataGridTextColumn Header="면적" Binding="{Binding Area}" Width="52" />
+                        <DataGridTextColumn Header="밝기" Binding="{Binding MeanIntensity, StringFormat=F2}" Width="48" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
         </GroupBox>
     </Grid>
 

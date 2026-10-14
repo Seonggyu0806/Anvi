@@ -16,13 +16,16 @@ using OpenCvSharp;
 
 namespace DiePipeline.Wpf.ViewModels;
 
-/// <summary>뷰어의 왼쪽 버튼이 하는 일 — 보기(아무것도 안 그림) 또는 그 종류의 영역 그리기.</summary>
+/// <summary>뷰어의 왼쪽 버튼이 하는 일 — 보기(아무것도 안 그림) · 그 종류의 영역 그리기 · 거리 재기.</summary>
 public enum ViewerTool
 {
     View,
     Roi,
     Chip,
     Feature,
+
+    /// <summary>거리 — 첫 클릭 A, 둘째 클릭 B 로 확정, 다음 클릭은 새 A(교수님과 같다).</summary>
+    Measure,
 }
 
 /// <summary>
@@ -32,6 +35,7 @@ public enum ViewerTool
 /// ★ 영역 그리기 — 검사 ROI(1) · 정상 die(N) · 정렬 특징(N). 다이 · 웨이퍼 에디터에 넘긴다(<see cref="ApplyToDie"/> · <see cref="ApplyToWafer"/>).
 ///   die-to-die 는 같은 크기끼리 비교하므로, 기준 크기가 생기면 다음 영역은 <b>같은 크기로 찍는다</b>(교수님 규칙).
 /// ★ 결함 표시 — 웨이퍼 결함을 원본 위에 얹고 그 자리로 간다(<see cref="ShowMarkers"/> · <see cref="CenterOn"/>).
+/// ★ 거리 재기 · µm 환산 — 환산 값은 raw 옆 설명 파일에서 오거나 사람이 넣는다(<see cref="MicronsPerPixel"/>). 저장하지 않는다.
 ///
 /// ★ 그림은 '원본 픽셀 크기의 판' 위에 놓인다. 확대는 판 전체에 배율을 거는 것이라, 판 위의 좌표는 <b>늘 원본 픽셀</b>이다 —
 ///   다음 단계(영역 그리기 · 결함 표시)도 좌표를 다시 계산하지 않는다.
@@ -74,6 +78,11 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
     private Func<PreviewInput, string>? _applyToDie;
     private Func<IReadOnlyList<PointF>, PointF, string>? _applyToWafer;
     private Func<string, IReadOnlyList<PointF>, PointF, string>? _registerToWafer;
+    private double _micronsPerPixel = 1.0;
+    private PointF? _measureFrom;
+    private PointF _measureA;
+    private PointF _measureB;
+    private bool _hasMeasure;
 
     public ImageViewerViewModel()
     {
@@ -181,12 +190,55 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>왼쪽 버튼이 하는 일.</summary>
+    /// <summary>왼쪽 버튼이 하는 일. ★ 거리에서 다른 도구로 바꾸면 찍다 만 첫 점은 버린다(잰 선은 남긴다).</summary>
     public ViewerTool Tool
     {
         get => _tool;
-        set => SetField(ref _tool, value);
+        set
+        {
+            if (SetField(ref _tool, value) && value != ViewerTool.Measure && _measureFrom is not null)
+            {
+                _measureFrom = null;
+            }
+        }
     }
+
+    /// <summary>
+    /// µm/px — 원본 픽셀 한 변이 몇 µm 인가. raw 옆 설명 파일의 <c>micronsPerPixel</c> 로 채우고, 없으면 1(미보정). 사람이 고칠 수 있다.
+    /// 0 이하 · 숫자가 아닌 값은 1 로 둔다.
+    /// </summary>
+    public double MicronsPerPixel
+    {
+        get => _micronsPerPixel;
+        set
+        {
+            if (SetField(ref _micronsPerPixel, new Calibration(value).MicronsPerPixel))
+            {
+                OnPropertyChanged(nameof(MeasureText));
+            }
+        }
+    }
+
+    /// <summary>지금 환산 — 보고서 · 거리 글자가 쓴다.</summary>
+    public Calibration Calibration => new(MicronsPerPixel);
+
+    /// <summary>재 놓은 선이 있나(첫 점만 찍은 것도 — 그때는 커서까지 따라온다).</summary>
+    public bool HasMeasure
+    {
+        get => _hasMeasure;
+        private set => SetField(ref _hasMeasure, value);
+    }
+
+    public double MeasureX1 => _measureA.X;
+
+    public double MeasureY1 => _measureA.Y;
+
+    public double MeasureX2 => _measureB.X;
+
+    public double MeasureY2 => _measureB.Y;
+
+    /// <summary>거리 글자 — <c>거리 123.4 px · 45.6 µm (Δx · Δy)</c>. 미보정이면 px 만. 잰 선이 없으면 빈 글자.</summary>
+    public string MeasureText => HasMeasure ? Calibration.DistanceText(_measureA, _measureB) : string.Empty;
 
     /// <summary>검사 ROI — 0개 또는 1개. 목록 칸을 다른 영역과 같은 모양으로 그리려고 목록으로 둔다.</summary>
     public ObservableCollection<RegionViewModel> RoiRegions { get; } = [];
@@ -349,7 +401,11 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         FeatureRegions.Clear();
         RebuildRegions();
         ClearMarkers();
+        ClearMeasure();
         StatusText = DrawHint;
+
+        // ★ 환산 값은 그 원본의 것 — raw 면 옆 설명 파일에서, 아니면 미보정.
+        MicronsPerPixel = MicronsOf(path);
 
         OnPropertyChanged(nameof(HasImage));
         OnPropertyChanged(nameof(SourcePath));
@@ -411,6 +467,49 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         StatusText = $"ROI {RoiRegions.Count} · 정상 die {ChipRegions.Count} · 정렬 특징 {FeatureRegions.Count}";
     }
 
+    // ───────────────────────── 거리 재기 ─────────────────────────
+
+    /// <summary>
+    /// '거리' 도구로 (x, y)(원본 px)를 눌렀다 — 첫 점이면 A, 둘째면 B 로 확정, 그다음은 새 A.
+    /// ★ 픽셀 칸 번호로 잰다(소수점 아래 버림) — 같은 픽셀을 두 번 누르면 0.
+    /// </summary>
+    public void MeasureClick(double x, double y)
+    {
+        if (_source is null || Tool != ViewerTool.Measure)
+        {
+            return;
+        }
+
+        PointF at = PixelAt(x, y);
+
+        if (_measureFrom is { } from)
+        {
+            SetMeasure(from, at);
+            _measureFrom = null;
+        }
+        else
+        {
+            _measureFrom = at;
+            SetMeasure(at, at);
+        }
+    }
+
+    /// <summary>첫 점을 찍은 뒤 마우스가 움직였다 — A 에서 커서까지 선이 따라온다.</summary>
+    public void MeasureHover(double x, double y)
+    {
+        if (_measureFrom is { } from)
+        {
+            SetMeasure(from, PixelAt(x, y));
+        }
+    }
+
+    public void ClearMeasure()
+    {
+        _measureFrom = null;
+        HasMeasure = false;
+        OnPropertyChanged(nameof(MeasureText));
+    }
+
     /// <summary>원본 (x, y) 를 화면 가운데에 둔다. 그림 밖이면 가장자리로.</summary>
     public void CenterOn(double x, double y)
     {
@@ -453,6 +552,40 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
     }
 
     private static (int Width, int Height) SizeOf(RegionViewModel region) => (region.Width, region.Height);
+
+    /// <summary>raw 옆 설명 파일의 µm/px — 없거나 못 읽으면 1(미보정).</summary>
+    private static double MicronsOf(string? path)
+    {
+        if (path is null || RawImageMeta.FindSidecar(path) is not { } sidecar)
+        {
+            return 1.0;
+        }
+
+        try
+        {
+            return RawImageMeta.Load(sidecar).MicronsPerPixel ?? 1.0;
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or System.Text.Json.JsonException or ArgumentException)
+        {
+            return 1.0;
+        }
+    }
+
+    /// <summary>그림 안 픽셀 칸 번호.</summary>
+    private PointF PixelAt(double x, double y)
+        => new(Math.Clamp(Math.Floor(x), 0, ImageWidth - 1), Math.Clamp(Math.Floor(y), 0, ImageHeight - 1));
+
+    private void SetMeasure(PointF a, PointF b)
+    {
+        _measureA = a;
+        _measureB = b;
+        HasMeasure = true;
+        OnPropertyChanged(nameof(MeasureX1));
+        OnPropertyChanged(nameof(MeasureY1));
+        OnPropertyChanged(nameof(MeasureX2));
+        OnPropertyChanged(nameof(MeasureY2));
+        OnPropertyChanged(nameof(MeasureText));
+    }
 
     private void Remove(RegionViewModel region)
     {
