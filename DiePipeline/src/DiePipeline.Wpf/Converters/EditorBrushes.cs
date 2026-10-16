@@ -64,20 +64,23 @@ public sealed class ErrorToBrushConverter : IValueConverter
 }
 
 /// <summary>
-/// 웨이퍼 맵 칸 상태 → 칸 색. E1 초록 · E0 청회 · 결함 빨강 · 터짐 주황 · 원판 밖 옅은 회색(교수님 맵과 같은 짝).
+/// 웨이퍼 맵 칸 상태 → 칸 색. 교수님 맵과 같은 짝 — E1 연두 / 결함 분홍 · E0 청회 / 결함 주황.
+/// 우리에게만 있는 것: 대기 흰색(맵이 테두리를 그린다) · 수동 제외 회색(맵은 빗금) · 터짐 보라 · 원판 밖 거의 안 보임.
 /// </summary>
 public sealed class WaferMapStateToBrushConverter : IValueConverter
 {
     private static readonly Dictionary<WaferMapState, SolidColorBrush> Map = new()
     {
         [WaferMapState.E1] = Make(0xC8, 0xE6, 0xC9),
+        [WaferMapState.Defective] = Make(0xEF, 0x9A, 0x9A),
         [WaferMapState.E0] = Make(0xCF, 0xD8, 0xDC),
-        [WaferMapState.Defective] = Make(0xE5, 0x73, 0x73),
-        [WaferMapState.Failed] = Make(0xFF, 0xB7, 0x4D),
-        [WaferMapState.Outside] = Make(0xF3, 0xF4, 0xF6),
+        [WaferMapState.E0Defective] = Make(0xFF, 0xCC, 0x80),
+        [WaferMapState.Failed] = Make(0xB3, 0x9D, 0xDB),
+        [WaferMapState.Outside] = Make(0xF8, 0xF9, 0xFA),
+        [WaferMapState.Excluded] = Make(0x9C, 0xA3, 0xAF),
 
-        // 실행 중 아직 안 본 칸 — 옅은 회색(원판 밖보다 조금 진하게, 검사할 칸이라는 표시)
-        [WaferMapState.Pending] = Make(0xE5, 0xE7, 0xEB),
+        // 실행 중 아직 안 본 칸 — 빈 칸(흰 바탕). 끝난 칸과 헷갈리지 않게 맵이 회색 테두리를 두른다
+        [WaferMapState.Pending] = Make(0xFF, 0xFF, 0xFF),
     };
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)

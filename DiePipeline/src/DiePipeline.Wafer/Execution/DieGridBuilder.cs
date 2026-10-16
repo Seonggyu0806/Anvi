@@ -114,11 +114,10 @@ public static class DieGridBuilder
                     spec.OriginY + ((double)row * spec.PitchY));
 
                 // ★ 자동 판정이 먼저, 사람이 적은 die 만 덮어쓴다.
-                WaferZone zone = manual.TryGetValue((col, row), out WaferZone chosen)
-                    ? chosen
-                    : ZoneOf(col, row, spec, transform, ideal, dieWidth, dieHeight);
+                bool byHand = manual.TryGetValue((col, row), out WaferZone chosen);
+                WaferZone zone = byHand ? chosen : ZoneOf(col, row, spec, transform, ideal, dieWidth, dieHeight);
 
-                dies.Add(new DieOrigin(col, row, transform.Apply(ideal), zone));
+                dies.Add(new DieOrigin(col, row, transform.Apply(ideal), zone, byHand));
             }
         }
 

@@ -43,10 +43,11 @@ public enum WaferZone
 ///
 /// ★ <see cref="Origin"/> 은 <b>정렬을 이미 적용한</b> 실제 좌표다.
 ///   "설계상 여기 있어야 한다"가 아니라 "실제로 여기 있다"이다.
+/// ★ <see cref="Manual"/> — 존을 자동 판정이 아니라 사람이(수동 지정) 정했다. 사람이 뺀 die 를 맵이 '원판 밖' 과 구별해 보인다.
 /// </summary>
-public readonly record struct DieOrigin(int Col, int Row, PointF Origin, WaferZone Zone)
+public readonly record struct DieOrigin(int Col, int Row, PointF Origin, WaferZone Zone, bool Manual = false)
 {
-    public override string ToString() => $"die(c{Col},r{Row}) {Origin} {Zone}";
+    public override string ToString() => $"die(c{Col},r{Row}) {Origin} {Zone}{(Manual ? " (수동)" : "")}";
 }
 
 /// <summary>

@@ -564,6 +564,21 @@ public sealed partial class GraphEditorViewModel : ObservableObject
             return false;
         }
 
+        // ★ 이 편집기에 없는 블록이 있으면 열지 않는다 — 블록을 그리다 터져 앱이 꺼졌다(동기 레시피의 WaferDefectCluster).
+        //   그리기 전에 본다. 그리는 도중에 막으면 보던 그래프가 반쯤 바뀐 채로 남는다.
+        string[] unknown = [.. recipe.Pipeline.Nodes.Select(n => n.Type).Where(t => !_settings.Registry.Contains(t)).Distinct()];
+
+        if (unknown.Length > 0)
+        {
+            ValidationMessages.Clear();
+            ValidationMessages.Add($"이 편집기에 없는 블록: {string.Join(", ", unknown)} — 다른 앱(동기 · 교수님)에만 있는 블록이거나 이름이 틀렸습니다. "
+                                   + "그 블록을 빼거나 있는 블록으로 바꾼 뒤 여세요.");
+            ValidationMessages.Add($"이 편집기의 블록: {string.Join(", ", _settings.Registry.TypeNames.Order(StringComparer.Ordinal))}");
+            IsValid = false;
+            StatusText = $"레시피를 열지 못했습니다 — 없는 블록 {string.Join(", ", unknown)}";
+            return false;
+        }
+
         EditorGraph graph = RecipeMapper.FromRecipe(recipe);
         string layoutPath = LayoutPath(path);
 

@@ -4,6 +4,7 @@
         xmlns:vm="clr-namespace:DiePipeline.Wpf.ViewModels"
         xmlns:views="clr-namespace:DiePipeline.Wpf.Views"
         xmlns:conv="clr-namespace:DiePipeline.Wpf.Converters"
+        xmlns:wexec="clr-namespace:DiePipeline.Wafer.Execution;assembly=DiePipeline.Wafer"
         Title="DiePipeline 블록 에디터" Height="860" Width="1360">
 
     <Window.DataContext>
@@ -12,6 +13,20 @@
 
     <Window.Resources>
         <conv:WaferMapStateToBrushConverter x:Key="MapBrush" />
+
+        <!-- 맵의 수동 제외 칸 — 회색 빗금(검사하지 않은 die 지만 원판 밖과 다르다) -->
+        <DrawingBrush x:Key="ExcludedHatch" TileMode="Tile" Viewport="0,0,6,6" ViewportUnits="Absolute">
+            <DrawingBrush.Drawing>
+                <DrawingGroup>
+                    <GeometryDrawing Brush="#E5E7EB" Geometry="M0,0 H6 V6 H0 Z" />
+                    <GeometryDrawing Geometry="M0,6 L6,0">
+                        <GeometryDrawing.Pen>
+                            <Pen Brush="#9CA3AF" Thickness="1.2" />
+                        </GeometryDrawing.Pen>
+                    </GeometryDrawing>
+                </DrawingGroup>
+            </DrawingBrush.Drawing>
+        </DrawingBrush>
         <BooleanToVisibilityConverter x:Key="ShowWhenTrue" />
         <conv:WorkspaceToCheckedConverter x:Key="WorkspaceChecked" />
         <conv:WorkspaceToVisibilityConverter x:Key="WorkspaceVisible" />
@@ -417,10 +432,11 @@
         </StatusBar>
 
         <Grid>
+            <!-- 위 블록 그래프 : 아래 실행 칸 = 반반 — 창을 키우면 실행 칸(맵)도 같이 커진다. 경계는 끌어서 바꾼다 -->
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" MinHeight="200" />
                 <RowDefinition Height="5" />
-                <RowDefinition Height="300" MinHeight="120" />
+                <RowDefinition Height="*" MinHeight="120" />
             </Grid.RowDefinitions>
 
             <views:GraphEditorView Grid.Row="0" DataContext="{Binding Editor}" />
@@ -460,21 +476,48 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <!-- 칸 지도 — die 하나가 칸 하나. 색 = 상태, 숫자 = 결함 수(샘플링 전), '!' = 검사가 터진 die.
-                             실행 중에는 die 가 끝날 때마다 칠해진다. 칸을 누르면 그 die 를 고른다 → 다이 미리보기 -->
+                        <!-- 칸 지도 — die 하나가 칸 하나. 색 = 상태, 숫자 = 결함 수(샘플링 전), '!' = 검사가 터진 die, '×' = 수동 제외.
+                             실행 중에는 die 가 끝날 때마다 칠해진다. 칸을 누르면 그 die 를 고른다 → 다이 미리보기.
+                             ★ 칸 칸이 많은 원판도 한눈에 — 자리에 맞게 줄인다(키우지는 않는다) -->
                         <DockPanel Grid.Column="0">
                             <Button DockPanel.Dock="Top" HorizontalAlignment="Left" Padding="6,1" Margin="0,0,0,4"
                                     Content="{Binding PreviewDieText}" Command="{Binding PreviewDieCommand}"
                                     ToolTip="고른 die 를 다이 블록 에디터에서 러너와 같은 ROI · 골든으로 미리보기 — 값을 고치면 바로 다시 검사" />
-                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                            <!-- 범례 — 교수님 맵과 같은 짝(E1 연두/분홍 · E0 청회/주황) + 대기 · 제외 · 터짐 -->
+                            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                                <WrapPanel.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Width" Value="11" />
+                                        <Setter Property="Height" Value="11" />
+                                        <Setter Property="CornerRadius" Value="2" />
+                                        <Setter Property="Margin" Value="0,0,3,0" />
+                                        <Setter Property="VerticalAlignment" Value="Center" />
+                                    </Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontSize" Value="10" />
+                                        <Setter Property="Foreground" Value="#6B7280" />
+                                        <Setter Property="Margin" Value="0,0,8,0" />
+                                        <Setter Property="VerticalAlignment" Value="Center" />
+                                    </Style>
+                                </WrapPanel.Resources>
+                                <Border Background="{Binding Source={x:Static wexec:WaferMapState.E1}, Converter={StaticResource MapBrush}}" /><TextBlock Text="E1" />
+                                <Border Background="{Binding Source={x:Static wexec:WaferMapState.Defective}, Converter={StaticResource MapBrush}}" /><TextBlock Text="E1 결함" />
+                                <Border Background="{Binding Source={x:Static wexec:WaferMapState.E0}, Converter={StaticResource MapBrush}}" /><TextBlock Text="E0" />
+                                <Border Background="{Binding Source={x:Static wexec:WaferMapState.E0Defective}, Converter={StaticResource MapBrush}}" /><TextBlock Text="E0 결함" />
+                                <Border Background="White" BorderBrush="#94A3B8" BorderThickness="1" /><TextBlock Text="대기" />
+                                <Border Background="{StaticResource ExcludedHatch}" /><TextBlock Text="제외" />
+                                <Border Background="{Binding Source={x:Static wexec:WaferMapState.Failed}, Converter={StaticResource MapBrush}}" /><TextBlock Text="터짐" />
+                            </WrapPanel>
+                            <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left" VerticalAlignment="Top">
                                 <ListBox ItemsSource="{Binding MapCells}" SelectedItem="{Binding SelectedCell}" HorizontalAlignment="Left" VerticalAlignment="Top"
-                                         BorderThickness="0" Background="Transparent">
+                                         BorderThickness="0" Background="Transparent"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled">
                                     <ListBox.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <UniformGrid Columns="{Binding MapCols}" />
                                         </ItemsPanelTemplate>
                                     </ListBox.ItemsPanel>
-                                    <!-- 고른 칸은 파란 테두리 — 기본 고름 색은 칸 색을 가려서 쓰지 않는다 -->
+                                    <!-- 고른 칸은 파란 테두리 — 칸 안쪽에 그려 옆 칸과 붙어 보이지 않게. 기본 고름 색은 칸 색을 가려서 쓰지 않는다 -->
                                     <ListBox.ItemContainerStyle>
                                         <Style TargetType="ListBoxItem">
                                             <Setter Property="Padding" Value="0" />
@@ -482,9 +525,10 @@
                                             <Setter Property="Template">
                                                 <Setter.Value>
                                                     <ControlTemplate TargetType="ListBoxItem">
-                                                        <Border x:Name="Pick" BorderThickness="2" BorderBrush="Transparent" CornerRadius="3">
+                                                        <Grid>
                                                             <ContentPresenter />
-                                                        </Border>
+                                                            <Border x:Name="Pick" Margin="2" BorderThickness="2" BorderBrush="Transparent" CornerRadius="2" />
+                                                        </Grid>
                                                         <ControlTemplate.Triggers>
                                                             <Trigger Property="IsSelected" Value="True">
                                                                 <Setter TargetName="Pick" Property="BorderBrush" Value="#2563EB" />
@@ -497,23 +541,29 @@
                                     </ListBox.ItemContainerStyle>
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
-                                            <Border Width="26" Height="26" Margin="1" CornerRadius="2"
-                                                    Background="{Binding State, Converter={StaticResource MapBrush}}">
-                                                <Border.ToolTip>
-                                                    <TextBlock>
-                                                        <Run Text="die(c" /><Run Text="{Binding Col, Mode=OneWay}" /><Run Text=",r" /><Run Text="{Binding Row, Mode=OneWay}" /><Run Text=")" />
-                                                        <Run Text="{Binding Zone, Mode=OneWay}" />
-                                                        <Run Text="· 결함" />
-                                                        <Run Text="{Binding Defects, Mode=OneWay}" />
-                                                    </TextBlock>
-                                                </Border.ToolTip>
+                                            <!-- 칸 사이 4 px. 대기 칸은 흰 바탕 + 회색 테두리, 수동 제외는 빗금 -->
+                                            <Border Width="26" Height="26" Margin="2" CornerRadius="2" BorderThickness="1" ToolTip="{Binding Tip}">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="{Binding State, Converter={StaticResource MapBrush}}" />
+                                                        <Setter Property="BorderBrush" Value="Transparent" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding State}" Value="Pending">
+                                                                <Setter Property="BorderBrush" Value="#94A3B8" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding State}" Value="Excluded">
+                                                                <Setter Property="Background" Value="{StaticResource ExcludedHatch}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
                                                 <TextBlock Text="{Binding Label}" FontSize="11" FontWeight="Bold"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
                                             </Border>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
                                 </ListBox>
-                            </ScrollViewer>
+                            </Viewbox>
                         </DockPanel>
 
                         <!-- 결함 표 — 샘플링 후(보여 줄 것). 웨이퍼 좌표는 정렬을 적용한 절대 좌표 -->

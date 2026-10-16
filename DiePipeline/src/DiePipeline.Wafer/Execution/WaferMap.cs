@@ -14,8 +14,14 @@ public enum WaferMapState
     /// <summary>유효 die, 결함 없음.</summary>
     E1,
 
-    /// <summary>결함이 있는 die(E1 · E0 모두).</summary>
+    /// <summary>결함이 있는 E1 die.</summary>
     Defective,
+
+    /// <summary>결함이 있는 E0 die — 교수님 맵처럼 E1 결함과 색을 달리한다(변두리 결함은 가장자리 · 노치일 수 있다).</summary>
+    E0Defective,
+
+    /// <summary>사람이 뺀 die(수동 지정 off) — 원판 밖과 똑같이 검사하지 않았지만, '원판 밖' 으로 숨으면 안 된다.</summary>
+    Excluded,
 
     /// <summary>검사가 터진 die — 결함 0개로 보이지만 <b>안 본 것</b>이다.</summary>
     Failed,
@@ -27,18 +33,31 @@ public enum WaferMapState
 /// <summary>
 /// 웨이퍼 맵의 칸 하나 = die 하나. 결함 수는 <b>샘플링 전</b>(<see cref="WaferInspectionResult.Found"/>) — 판정과 같은 것을 센다.
 /// </summary>
-public sealed record WaferMapCell(int Col, int Row, WaferZone Zone, int Defects, bool Failed, bool Pending = false)
+public sealed record WaferMapCell(int Col, int Row, WaferZone Zone, int Defects, bool Failed, bool Pending = false, bool Excluded = false)
 {
     public WaferMapState State
         => Failed ? WaferMapState.Failed
-            : Zone == WaferZone.Outside ? WaferMapState.Outside
+            : Zone == WaferZone.Outside ? (Excluded ? WaferMapState.Excluded : WaferMapState.Outside)
             : Pending ? WaferMapState.Pending
-            : Defects > 0 ? WaferMapState.Defective
+            : Defects > 0 ? (Zone == WaferZone.E0 ? WaferMapState.E0Defective : WaferMapState.Defective)
             : Zone == WaferZone.E0 ? WaferMapState.E0
             : WaferMapState.E1;
 
     /// <summary>칸에 적을 글자 — 결함 수. 없으면 비운다(0 을 적으면 칸이 숫자로 가득해 결함 칸이 안 보인다).</summary>
-    public string Label => Failed ? "!" : Defects > 0 ? Defects.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
+    public string Label
+        => Failed ? "!"
+            : State == WaferMapState.Excluded ? "×"
+            : Defects > 0 ? Defects.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
+
+    /// <summary>칸 풍선 글자 — 어느 die 이고 어떤 상태인가.</summary>
+    public string Tip => $"die(c{Col},r{Row}) " + State switch
+    {
+        WaferMapState.Outside => "원판 밖",
+        WaferMapState.Excluded => "수동 제외 — 검사하지 않음",
+        WaferMapState.Pending => $"{Zone} · 대기",
+        WaferMapState.Failed => $"{Zone} · 검사가 터짐(안 본 것)",
+        _ => $"{Zone} · 결함 {Defects}",
+    };
 }
 
 /// <summary>
@@ -74,9 +93,13 @@ public static class WaferMap
                 die.Row,
                 die.Zone,
                 counts.GetValueOrDefault((die.Col, die.Row)),
-                failed.Contains((die.Col, die.Row)))),
+                failed.Contains((die.Col, die.Row)),
+                Excluded: ByHandOff(die))),
         ];
     }
+
+    /// <summary>사람이 뺀 die — 수동 지정으로 원판 밖이 됐다.</summary>
+    private static bool ByHandOff(DieOrigin die) => die.Manual && die.Zone == WaferZone.Outside;
 
     /// <summary>
     /// 실행 중 — 격자만 놓인 맵. 칸은 전부 '아직 안 봄'(원판 밖은 원판 밖). 행 우선, <see cref="Of"/> 와 같은 순서 · 같은 칸 수.
@@ -85,7 +108,7 @@ public static class WaferMap
     {
         ArgumentNullException.ThrowIfNull(grid);
 
-        return [.. grid.InRowMajorOrder().Select(die => new WaferMapCell(die.Col, die.Row, die.Zone, 0, false, Pending: true))];
+        return [.. grid.InRowMajorOrder().Select(die => new WaferMapCell(die.Col, die.Row, die.Zone, 0, false, Pending: true, Excluded: ByHandOff(die)))];
     }
 
     /// <summary>
@@ -97,6 +120,6 @@ public static class WaferMap
 
         DieOrigin die = inspection.Die;
 
-        return new WaferMapCell(die.Col, die.Row, die.Zone, inspection.Defects.Count, inspection.Failed);
+        return new WaferMapCell(die.Col, die.Row, die.Zone, inspection.Defects.Count, inspection.Failed, Excluded: ByHandOff(die));
     }
 }
