@@ -252,6 +252,41 @@ public sealed class LabelTests : IDisposable
         Assert.True(thin < 0.3, $"길쭉한 것은 0에 가까워야 한다 — {thin:F3}");
     }
 
+    /// <summary>
+    /// ★ 밝기 · 원형도는 덩어리 네모 안에서만 잰다 — 네모가 겹쳐도(고리 안의 점) 서로 섞이지 않고, 그림 전체로 잴 때와 같다.
+    ///   그림 가장자리에 붙은 덩어리도 원형도가 나온다.
+    /// </summary>
+    [Fact]
+    public void 네모가_겹쳐도_밝기와_원형도는_제_것만()
+    {
+        Mat mask = Mask();
+        Mat intensity = Keep(new Mat(Size, Size, MatType.CV_32FC1, new Scalar(0)));
+
+        // 고리(4~19 네모의 테두리 2 px) · 그 안의 점(10~13) · 왼쪽 위 가장자리에 붙은 덩어리
+        Fill(mask, 4, 4, 16, 16);
+        Fill(mask, 6, 6, 12, 12, 0);
+        Fill(mask, 10, 10, 4, 4);
+        Fill(mask, 0, 24, 5, 5);
+        intensity.SetTo(new Scalar(0.3));
+        using (Mat inner = new(intensity, new Rect(10, 10, 4, 4)))
+        {
+            inner.SetTo(new Scalar(0.9));
+        }
+
+        LabelOptions options = new() { ComputeShapeFeatures = true };
+        Defect[] items = [.. Run(mask, options, intensity).Items.OrderBy(d => d.Area)];
+
+        Defect dot = items.Single(d => d.Area == 16);
+        Defect ring = items.Single(d => d.Area == (16 * 16) - (12 * 12));
+        Defect edge = items.Single(d => d.Area == 25);
+
+        Assert.Equal(0.9, dot.MeanIntensity!.Value, tolerance: 1e-5);
+        Assert.Equal(0.3, ring.MeanIntensity!.Value, tolerance: 1e-5);
+        Assert.Equal(0.3, ring.MaxIntensity!.Value, tolerance: 1e-5);
+        Assert.True(edge.Circularity > 0.5, $"가장자리에 붙은 네모의 원형도 {edge.Circularity}");
+        Assert.True(dot.Circularity > ring.Circularity, $"점 {dot.Circularity} · 고리 {ring.Circularity}");
+    }
+
     [Fact]
     public void 원형도는_켜야_나온다()
     {

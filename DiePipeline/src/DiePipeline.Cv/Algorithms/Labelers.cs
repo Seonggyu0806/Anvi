@@ -81,10 +81,11 @@ public static class Labelers
 
             double? mean = null;
             double? max = null;
+            Rect box = Around(stats, label, labels.Cols, labels.Rows);
 
             if (options.ComputeIntensityStats && intensity is not null)
             {
-                (mean, max) = Brightness(labels, intensity, label);
+                (mean, max) = Brightness(labels, intensity, label, box);
             }
 
             defects.Add(new Defect
@@ -102,23 +103,46 @@ public static class Labelers
                     centroids.Get<double>(label, 1)),
                 MeanIntensity = mean,
                 MaxIntensity = max,
-                Circularity = options.ComputeShapeFeatures ? Circularity(labels, label, area) : null,
+                Circularity = options.ComputeShapeFeatures ? Circularity(labels, label, area, box) : null,
             });
         }
 
         return new DefectList { Items = defects };
     }
 
-    private static (double Mean, double Max) Brightness(Mat labels, Mat intensity, int label)
+    /// <summary>
+    /// 덩어리를 감싼 네모 + 둘레 1 px(그림 안으로 맞춤) — 밝기 · 원형도를 이 안에서만 잰다.
+    ///
+    /// ★ 예전에는 덩어리마다 <b>그림 전체</b>로 마스크를 만들었다. 덩어리가 수백 개면 die 하나에 몇 분 걸렸다(실데이터, 하한을 낮춘 레시피).
+    ///   네모 밖에는 이 번호의 픽셀이 없으니 값은 같다.
+    /// ★ 1 px 을 더하는 까닭 — 윤곽 찾기가 그림 가장자리를 바깥으로 보는데, 덩어리가 네모 가장자리에 붙으면 둘레가 달라질 수 있다.
+    ///   한 칸 띄우면 그림 전체로 잴 때와 같은 윤곽이 나온다(그림 가장자리에 붙은 덩어리는 원래도 붙어 있었다).
+    /// </summary>
+    private static Rect Around(Mat stats, int label, int width, int height)
     {
-        // 이 덩어리만 255인 마스크를 만들어 거기서만 통계를 낸다.
-        using Mat only = new();
-        Cv2.Compare(labels, Scalar.All(label), only, CmpTypes.EQ);
+        int left = stats.Get<int>(label, (int)ConnectedComponentsTypes.Left);
+        int top = stats.Get<int>(label, (int)ConnectedComponentsTypes.Top);
+        int right = left + stats.Get<int>(label, (int)ConnectedComponentsTypes.Width);
+        int bottom = top + stats.Get<int>(label, (int)ConnectedComponentsTypes.Height);
 
-        double mean = Cv2.Mean(intensity, only).Val0;
+        int x0 = Math.Max(0, left - 1);
+        int y0 = Math.Max(0, top - 1);
+
+        return new Rect(x0, y0, Math.Min(width, right + 1) - x0, Math.Min(height, bottom + 1) - y0);
+    }
+
+    private static (double Mean, double Max) Brightness(Mat labels, Mat intensity, int label, Rect box)
+    {
+        // 이 덩어리만 255인 마스크를 만들어 거기서만 통계를 낸다 — 덩어리 네모 안에서만.
+        using Mat labelsIn = new(labels, box);
+        using Mat intensityIn = new(intensity, box);
+        using Mat only = new();
+        Cv2.Compare(labelsIn, Scalar.All(label), only, CmpTypes.EQ);
+
+        double mean = Cv2.Mean(intensityIn, only).Val0;
 
         using Mat masked = new();
-        intensity.CopyTo(masked, only);
+        intensityIn.CopyTo(masked, only);
         Cv2.MinMaxLoc(masked, out _, out double max);
 
         return (mean, max);
@@ -130,10 +154,11 @@ public static class Labelers
     /// ★ 완전한 원이면 정확히 1이 나온다. 길쭉하거나 울퉁불퉁하면 0 쪽으로 간다.
     ///   같은 면적이면 <b>원이 둘레가 제일 짧다</b>는 성질을 쓴 것이다.
     /// </summary>
-    private static double Circularity(Mat labels, int label, int area)
+    private static double Circularity(Mat labels, int label, int area, Rect box)
     {
+        using Mat labelsIn = new(labels, box);
         using Mat only = new();
-        Cv2.Compare(labels, Scalar.All(label), only, CmpTypes.EQ);
+        Cv2.Compare(labelsIn, Scalar.All(label), only, CmpTypes.EQ);
 
         Cv2.FindContours(only, out Point[][] contours, out _,
             RetrievalModes.External, ContourApproximationModes.ApproxSimple);

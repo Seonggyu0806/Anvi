@@ -50,9 +50,9 @@ die     이웃 합치기(골든) → 빼기 → 이진화 → 덩어리 세기 �
 
 | 폴더 | |
 |---|---|
-| `samples/recipes` | die 레시피 4개 |
+| `samples/recipes` | die 레시피 5개 |
 | `samples/wafer` | 웨이퍼 레시피 견본 · 표식 조각(코드가 그린 그림) |
-| `tests/DiePipeline.Tests` | 테스트 666개 |
+| `tests/DiePipeline.Tests` | 테스트 683개 |
 
 ## 문서
 

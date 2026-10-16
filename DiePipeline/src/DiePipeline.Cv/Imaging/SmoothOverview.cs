@@ -31,7 +31,7 @@ public static class SmoothOverview
         try
         {
             // ★ 띠마다 따로 읽어 결과의 서로 다른 행에 쓴다 — 나눠 돌려도 겹치지 않는다(읽기는 동시에 해도 된다).
-            //   한 줄로 돌리면 1 GB 넘는 원본에서 20초 가까이 걸렸다. 코어 하나는 화면에 남긴다.
+            //   한 줄로 돌리면 큰 원본에서 20초 가까이 걸렸다. 코어 하나는 화면에 남긴다.
             ParallelOptions options = new()
             {
                 CancellationToken = ct,
