@@ -252,6 +252,7 @@ public partial class ImageViewerView : UserControl
         }
 
         _drawFrom = e.GetPosition(Board);
+        viewer.BeginDraw();
         Stretch(_drawFrom.Value, _drawFrom.Value);
         Rubber.Visibility = Visibility.Visible;
         Board.CaptureMouse();
@@ -286,9 +287,21 @@ public partial class ImageViewerView : UserControl
         }
     }
 
-    /// <summary>고무줄 사각형을 두 점(원본 px) 사이로 — 거꾸로 끌어도 같은 사각형.</summary>
+    /// <summary>
+    /// 고무줄 사각형을 두 점(원본 px) 사이로 — 거꾸로 끌어도 같은 사각형.
+    /// ★ 크기가 정해졌으면 끈 크기가 아니라 실제로 찍힐 상자를 마우스 자리에 — 놓으면 보이던 그대로 잡힌다.
+    /// </summary>
     private void Stretch(Point a, Point b)
     {
+        if (Viewer?.StampAt(b.X, b.Y) is { } stamp)
+        {
+            Canvas.SetLeft(Rubber, stamp.X);
+            Canvas.SetTop(Rubber, stamp.Y);
+            Rubber.Width = stamp.Width;
+            Rubber.Height = stamp.Height;
+            return;
+        }
+
         Canvas.SetLeft(Rubber, Math.Min(a.X, b.X));
         Canvas.SetTop(Rubber, Math.Min(a.Y, b.Y));
         Rubber.Width = Math.Abs(b.X - a.X);

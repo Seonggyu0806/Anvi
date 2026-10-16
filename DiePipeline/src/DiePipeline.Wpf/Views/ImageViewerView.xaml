@@ -174,14 +174,14 @@
                         <ScaleTransform ScaleX="{Binding Zoom}" ScaleY="{Binding Zoom}" />
                     </Grid.LayoutTransform>
 
-                    <!-- 원본 그대로 또는 축소본 — 판 크기로 늘인다. 확대하면 픽셀이 칸으로 보이게(흐리게 섞지 않는다) -->
-                    <Image Source="{Binding Display}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                    <!-- 원본 그대로 또는 축소본 — 판 크기로 늘인다. 확대하면 픽셀이 칸으로 보이게(흐리게 섞지 않는다), 줄이면 부드럽게(건너뛰면 선이 끊긴다) -->
+                    <Image Source="{Binding Display}" Stretch="Fill" RenderOptions.BitmapScalingMode="{Binding Scaling}" />
 
                     <!-- 선명 조각 — 보이는 영역만 원본 해상도. 원본 좌표 그대로 덮는다 -->
                     <Canvas>
                         <Image Source="{Binding SharpImage}" Canvas.Left="{Binding SharpX}" Canvas.Top="{Binding SharpY}"
                                Width="{Binding SharpWidth}" Height="{Binding SharpHeight}"
-                               Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                               Stretch="Fill" RenderOptions.BitmapScalingMode="{Binding Scaling}" />
                     </Canvas>
 
                     <!-- 그린 영역 — ROI 파랑 · 정상 die 초록 · 정렬 특징 보라. 선 두께는 화면에서 같은 굵기(배율로 나눈다) -->

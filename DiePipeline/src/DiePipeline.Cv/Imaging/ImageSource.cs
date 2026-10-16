@@ -34,6 +34,17 @@ public static class ImageSource
             return OpenRaw(path, RawImageMeta.Load(sidecar));
         }
 
+        // ★ raw 인데 설명 파일이 없다 — OpenCV 로 넘기면 "형식을 모르거나 깨졌습니다" 가 나와 까닭을 못 찾는다
+        //   (설명 파일만 다른 폴더로 옮긴 경우). 무엇이 어디에 있어야 하는지 바로 말한다.
+        if (Path.GetExtension(path).Equals(".raw", StringComparison.OrdinalIgnoreCase))
+        {
+            string expected = path + ".json";
+
+            throw new FileNotFoundException(
+                $"raw 옆에 설명 파일이 없습니다 — {Path.GetFileName(expected)} 를 raw 와 같은 폴더에 두세요(폭 · 높이 · 바이트 수를 거기서 읽습니다): {path}",
+                expected);
+        }
+
         if (!Path.GetExtension(path).Equals(".bmp", StringComparison.OrdinalIgnoreCase))
         {
             return new MatImageSource(ImageFile.LoadGrayF32(path));

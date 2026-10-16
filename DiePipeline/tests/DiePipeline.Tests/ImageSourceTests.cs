@@ -205,6 +205,20 @@ public sealed class ImageSourceTests : IDisposable
         Assert.Throws<FileNotFoundException>(() => ImageSource.Open(missing));
     }
 
+    /// <summary>★ raw 인데 옆에 설명 파일이 없으면 '형식을 모름' 이 아니라 설명 파일이 없다고 말한다 — 어디에 둬야 하는지까지.</summary>
+    [Fact]
+    public void 설명_파일_없는_raw_는_까닭을_말한다()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"diepipe-lonely-{Guid.NewGuid():N}.raw");
+        File.WriteAllBytes(path, new byte[16]);
+        _files.Add(path);
+
+        FileNotFoundException error = Assert.Throws<FileNotFoundException>(() => ImageSource.Open(path));
+
+        Assert.Contains("설명 파일이 없습니다", error.Message, StringComparison.Ordinal);
+        Assert.Equal(path + ".json", error.FileName);
+    }
+
     [Fact]
     public void 깨진_BMP는_거부하고_파일을_놓아준다()
     {

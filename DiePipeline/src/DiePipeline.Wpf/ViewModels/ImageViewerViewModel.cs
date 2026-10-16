@@ -60,6 +60,10 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
     private Roi _sharpRegion;
     private int _proxyFactor = 1;
     private double _zoom = 1;
+
+    // 평균 축소본을 뒤에서 만드는 일 — 다른 사진을 열거나 닫으면 멈추고 끝나기를 기다린다(읽는 도중에 원본을 놓지 않게).
+    private CancellationTokenSource? _smoothCancel;
+    private Task<Mat>? _smoothWork;
     private const string DrawHint = "도구를 고르고 그림 위를 왼쪽 버튼으로 끌어 영역을 그립니다";
 
     private const string CaseFilter = "검사 케이스 (*.case.json)|*.case.json|JSON (*.json)|*.json";
@@ -328,6 +332,7 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         {
             if (SetField(ref _zoom, Math.Clamp(value, MinZoom, MaxZoom)))
             {
+                OnPropertyChanged(nameof(Scaling));
                 OnPropertyChanged(nameof(ZoomText));
                 OnPropertyChanged(nameof(RegionLine));
                 OnPropertyChanged(nameof(RegionLabelSize));
@@ -336,6 +341,14 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
     }
 
     public string ZoomText => (Zoom * 100).ToString("0.#", CultureInfo.InvariantCulture) + "%";
+
+    /// <summary>
+    /// 그림을 화면 크기로 늘이고 줄이는 법 — 줄여 볼 때(배율 1 미만)는 주변 픽셀을 섞어 부드럽게,
+    /// 키워 볼 때는 원본 픽셀이 칸으로 그대로 보이게.
+    /// ★ 줄일 때도 칸 방식(가장 가까운 픽셀 하나)이면 픽셀을 건너뛰어 가는 선이 끊기고 사진이 깨져 보였다.
+    /// </summary>
+    public System.Windows.Media.BitmapScalingMode Scaling
+        => Zoom < 1 ? System.Windows.Media.BitmapScalingMode.HighQuality : System.Windows.Media.BitmapScalingMode.NearestNeighbor;
 
     /// <summary>커서 아래 원본 좌표 · 픽셀값. 그림 밖이면 빈 글자.</summary>
     public string CursorText
@@ -379,6 +392,7 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
     {
         ArgumentNullException.ThrowIfNull(source);
 
+        StopSmoothing();
         _source?.Dispose();
         _source = source;
         _path = path;
@@ -390,6 +404,12 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         using (Mat overview = source.ReadOverview(_proxyFactor == 1 ? Math.Max(source.Width, source.Height) : ViewportPlanner.MaxProxyLong))
         {
             Display = BitmapConvert.ToBitmap(overview);
+        }
+
+        // ★ 솎아낸 축소본은 가는 선이 끊겨 보인다 — 원본을 끝까지 읽어 평균 낸 것으로 뒤에서 바꿔 끼운다.
+        if (_proxyFactor > 1)
+        {
+            StartSmoothing(source, _proxyFactor);
         }
 
         ClearSharp();
@@ -422,8 +442,9 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// 왼쪽 버튼으로 (x0, y0) → (x1, y1)(원본 px) 을 끌었다 — 지금 도구의 영역을 하나 놓는다.
-    /// ★ 기준 크기가 있으면 끈 크기는 버리고 <b>끈 자리(왼쪽 위)에 같은 크기로 찍는다</b> —
+    /// ★ 기준 크기가 있으면 끈 크기는 버리고 <b>마우스를 놓은 자리(왼쪽 위)에 같은 크기로 찍는다</b> —
     ///   정상 die 는 ROI 크기, ROI 는 첫 정상 die 크기, 정렬 특징은 첫 특징 크기(교수님 규칙).
+    ///   끄는 동안 화면이 그 상자를 미리 보인다(<see cref="StampAt"/>) — 놓으면 보이던 그대로 잡힌다.
     /// </summary>
     public void PlaceRegion(double x0, double y0, double x1, double y1)
     {
@@ -432,16 +453,7 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
             return;
         }
 
-        (int Width, int Height)? size = Tool switch
-        {
-            ViewerTool.Roi => ChipRegions.Count > 0 ? SizeOf(ChipRegions[0]) : null,
-            ViewerTool.Chip => RoiRegions.Count > 0 ? SizeOf(RoiRegions[0]) : ChipRegions.Count > 0 ? SizeOf(ChipRegions[0]) : null,
-            _ => FeatureRegions.Count > 0 ? SizeOf(FeatureRegions[0]) : null,
-        };
-
-        Roi? area = size is { } s
-            ? RegionTool.Stamp(Math.Min(x0, x1), Math.Min(y0, y1), s.Width, s.Height, ImageWidth, ImageHeight)
-            : RegionTool.FromDrag(x0, y0, x1, y1, ImageWidth, ImageHeight);
+        Roi? area = StampAt(x1, y1) ?? RegionTool.FromDrag(x0, y0, x1, y1, ImageWidth, ImageHeight);
 
         if (area is not { } a)
         {
@@ -465,6 +477,37 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
 
         RebuildRegions();
         StatusText = $"ROI {RoiRegions.Count} · 정상 die {ChipRegions.Count} · 정렬 특징 {FeatureRegions.Count}";
+    }
+
+    /// <summary>
+    /// 크기가 이미 정해졌으면 지금 도구로 (x, y)(원본 px, 왼쪽 위)에 찍힐 영역 — 그림 안으로 맞춘 것. 정해지지 않았으면 null(끈 크기 그대로).
+    /// ★ 끄는 동안 화면이 고무줄 대신 이것을 그린다. 끈 크기를 그리면 놓는 순간 다른 크기가 잡혀 '더 잡힌' 것처럼 보였다.
+    /// </summary>
+    public Roi? StampAt(double x, double y)
+        => _source is not null && FixedSize() is { } s ? RegionTool.Stamp(x, y, s.Width, s.Height, ImageWidth, ImageHeight) : null;
+
+    /// <summary>끌기 시작 — 크기가 정해졌으면 아래 줄에 크기와 기준을 적는다.</summary>
+    public void BeginDraw()
+    {
+        if (_source is not null && FixedSize() is { } s)
+        {
+            StatusText = $"크기 고정 {s.Width}×{s.Height} — {s.Basis} 크기로 찍힙니다(마우스를 놓은 자리가 왼쪽 위). "
+                         + "다른 크기로 그리려면 그 영역들을 지우고 다시 그리세요";
+        }
+    }
+
+    /// <summary>지금 도구의 기준 크기 — 정상 die 는 ROI, ROI 는 첫 정상 die, 정렬 특징은 첫 특징. 없으면 null.</summary>
+    private (int Width, int Height, string Basis)? FixedSize()
+    {
+        static (int Width, int Height, string Basis) Of(RegionViewModel region, string basis) => (region.Width, region.Height, basis);
+
+        return Tool switch
+        {
+            ViewerTool.Roi => ChipRegions.Count > 0 ? Of(ChipRegions[0], "첫 정상 die") : null,
+            ViewerTool.Chip => RoiRegions.Count > 0 ? Of(RoiRegions[0], "검사 ROI") : ChipRegions.Count > 0 ? Of(ChipRegions[0], "첫 정상 die") : null,
+            ViewerTool.Feature => FeatureRegions.Count > 0 ? Of(FeatureRegions[0], "첫 정렬 특징") : null,
+            _ => null,
+        };
     }
 
     // ───────────────────────── 거리 재기 ─────────────────────────
@@ -550,8 +593,6 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         Markers.Clear();
         RaiseMarkers();
     }
-
-    private static (int Width, int Height) SizeOf(RegionViewModel region) => (region.Width, region.Height);
 
     /// <summary>raw 옆 설명 파일의 µm/px — 없거나 못 읽으면 1(미보정).</summary>
     private static double MicronsOf(string? path)
@@ -936,8 +977,74 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        StopSmoothing();
         _source?.Dispose();
         _source = null;
+    }
+
+    /// <summary>
+    /// 평균 축소본(<see cref="SmoothOverview"/>)을 뒤에서 만들기 시작한다. 다 되면 화면 스레드에서 <see cref="Display"/> 를 바꾼다.
+    /// ★ 화면 스레드가 없으면(시험 등) 만들지 않는다 — 다 된 그림을 놓을 곳이 없다.
+    /// </summary>
+    private void StartSmoothing(IImageSource source, int step)
+    {
+        if (SynchronizationContext.Current is null)
+        {
+            return;
+        }
+
+        CancellationTokenSource cancel = new();
+        Task<Mat> work = Task.Run(() => SmoothOverview.Read(source, step, cancel.Token), cancel.Token);
+        _smoothCancel = cancel;
+        _smoothWork = work;
+
+        work.ContinueWith(
+            done =>
+            {
+                if (!done.IsCompletedSuccessfully)
+                {
+                    _ = done.Exception;   // 멈췄거나 못 읽었다 — 솎아낸 축소본을 그대로 둔다
+                    return;
+                }
+
+                using Mat smooth = done.Result;
+
+                // 그사이 다른 사진을 열었으면 버린다
+                if (ReferenceEquals(_smoothWork, done))
+                {
+                    Display = BitmapConvert.ToBitmap(smooth);
+                    _smoothCancel?.Dispose();
+                    _smoothCancel = null;
+                    _smoothWork = null;
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.None,
+            TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>뒤에서 만들던 평균 축소본을 멈추고 끝나기를 기다린다 — 띠 하나 읽는 시간이면 멈춘다. 원본을 놓기 전에 부른다.</summary>
+    private void StopSmoothing()
+    {
+        if (_smoothCancel is not { } cancel)
+        {
+            return;
+        }
+
+        cancel.Cancel();
+
+        try
+        {
+            _smoothWork?.Wait();
+        }
+        catch (AggregateException)
+        {
+            // 멈춤 · 실패 — 버린다
+        }
+
+        cancel.Dispose();
+        _smoothCancel = null;
+        _smoothWork = null;
     }
 
     private void OpenWithDialog()
