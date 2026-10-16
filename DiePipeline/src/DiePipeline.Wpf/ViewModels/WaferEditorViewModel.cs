@@ -1,7 +1,9 @@
 ﻿using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Windows.Input;
+using System.Windows.Threading;
 using DiePipeline.Core.Configuration;
 using DiePipeline.Core.Domain;
 using DiePipeline.Core.Registry;
@@ -16,6 +18,9 @@ using Microsoft.Win32;
 
 namespace DiePipeline.Wpf.ViewModels;
 
+/// <summary>웨이퍼 결과의 die 하나를 다이 에디터에서 보자는 부탁 — 그 die 의 레시피 파일 + 러너와 같은 ROI · 골든(+ 원판).</summary>
+public sealed record DiePreviewRequest(string RecipePath, PreviewInput Input);
+
 /// <summary>
 /// 웨이퍼 에디터 탭 — 웨이퍼 레시피(<c>*.wafer.json</c>)를 블록으로 짜고(<see cref="Editor"/>), 그 자리에서 돌린다(실행 칸).
 ///
@@ -23,6 +28,8 @@ namespace DiePipeline.Wpf.ViewModels;
 /// ★ 실행은 명령행 <c>wafer --recipe</c> 와 <b>같은 실행기</b>(<see cref="WaferRecipeRunner"/>)다 —
 ///   같은 레시피 · 같은 사진이면 같은 답이 나온다(시험: 편집기를_거친_견본은_파일과_같은_답).
 /// ★ 원본 사진 위에 결과를 겹쳐 그리는 것은 여기서 안 한다(C — 오버레이). 여기는 칸 지도와 결함 표까지.
+/// ★ 실행 중에는 격자가 놓이자마자 맵을 그리고 die 가 끝날 때마다 칸을 칠한다(동기 앱 · 교수님 WaferEvents 와 같은 자리).
+/// ★ 맵 칸 · 결함을 고르면 그 die 를 다이 에디터에서 러너와 같은 ROI · 골든으로 본다(<see cref="ToDieEditor"/>) — 값을 고치면 바로 다시.
 /// </summary>
 public sealed class WaferEditorViewModel : ObservableObject, IDisposable
 {
@@ -34,6 +41,9 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
     private readonly RelayCommand _openImageCommand;
     private readonly RelayCommand _runCommand;
     private readonly RelayCommand _cancelCommand;
+    private readonly RelayCommand _previewDieCommand;
+    private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly Stopwatch _watch = new();
 
     private WaferScene? _scene;
     private CancellationTokenSource? _cancel;
@@ -47,6 +57,21 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
     private WaferDefect? _selectedDefect;
     private double _overviewPixel = 1;
     private bool _hasResult;
+
+    // ── 실행 중 표시
+    private int _runId;
+    private string _stage = string.Empty;
+    private string _stageText = string.Empty;
+    private int _diesDone;
+    private int _dieTotal = 1;
+    private Dictionary<(int Col, int Row), int> _cellIndex = [];
+
+    // ── 마지막 결과 · 그때 쓴 die 레시피 파일(다이 미리보기가 같은 파일을 연다)
+    private WaferInspectionResult? _result;
+    private string? _runE1;
+    private string? _runE0;
+    private WaferMapCell? _selectedCell;
+    private Func<DiePreviewRequest, string>? _toDieEditor;
 
     public WaferEditorViewModel()
     {
@@ -84,7 +109,65 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
         _openImageCommand = new RelayCommand(OpenImage, () => !IsBusy);
         _runCommand = new RelayCommand(Run, () => !IsBusy && _scene is not null);
         _cancelCommand = new RelayCommand(() => _cancel?.Cancel(), () => IsBusy);
+        _previewDieCommand = new RelayCommand(PreviewDie, () => !IsBusy && _toDieEditor is not null && SelectedRunDie() is { OffWafer: false });
+        _clock.Tick += (_, _) => RaiseStage();
     }
+
+    /// <summary>'die → 다이 미리보기' — 고른 die 를 다이 블록 에디터에서 러너와 같은 ROI · 골든으로.</summary>
+    public ICommand PreviewDieCommand => _previewDieCommand;
+
+    /// <summary>다이 에디터로 넘기는 곳 — 창이 이어 준다. 돌려준 글자를 상태 줄에 띄운다.</summary>
+    public Func<DiePreviewRequest, string>? ToDieEditor
+    {
+        get => _toDieEditor;
+        set
+        {
+            _toDieEditor = value;
+            _previewDieCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>실행 단계 — 준비 · 정렬 중 → die n / N → 완료(경과 초). 실행 전엔 빈 글자.</summary>
+    public string StageText
+    {
+        get => _stageText;
+        private set => SetField(ref _stageText, value);
+    }
+
+    /// <summary>진행 막대 — 끝낸 칸 수 / 격자 칸 수.</summary>
+    public int DiesDone
+    {
+        get => _diesDone;
+        private set => SetField(ref _diesDone, value);
+    }
+
+    public int DieTotal
+    {
+        get => _dieTotal;
+        private set => SetField(ref _dieTotal, Math.Max(1, value));
+    }
+
+    /// <summary>
+    /// 고른 맵 칸 — 다이 미리보기의 대상. 결함을 고르면 그 결함의 die 칸이 같이 골라진다.
+    /// </summary>
+    public WaferMapCell? SelectedCell
+    {
+        get => _selectedCell;
+        set
+        {
+            if (SetField(ref _selectedCell, value))
+            {
+                OnPropertyChanged(nameof(PreviewDieText));
+                _previewDieCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    /// <summary>다이 미리보기 단추 글자 — 고른 die 를 적는다.</summary>
+    public string PreviewDieText
+        => SelectedRunDie() is { OffWafer: false } die
+            ? $"die (c{die.Die.Col},r{die.Die.Row}) {die.Die.Zone} → 다이 미리보기"
+            : "die 를 고르면 다이 미리보기";
 
     /// <summary>블록 편집기 — die 탭과 같은 부품.</summary>
     public GraphEditorViewModel Editor { get; }
@@ -146,6 +229,12 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
                 {
                     box.IsSelected = ReferenceEquals(box.Item, value);
                 }
+
+                // 결함의 die 칸도 같이 고른다 — 다이 미리보기가 그 die 를 본다.
+                if (value is not null)
+                {
+                    SelectedCell = MapCells.FirstOrDefault(c => c.Col == value.DieCol && c.Row == value.DieRow) ?? SelectedCell;
+                }
             }
         }
     }
@@ -203,6 +292,7 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _cancel?.Cancel();
+        _clock.Stop();
         _scene?.Dispose();
     }
 
@@ -360,6 +450,16 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
         ClearResults();
         SummaryText = "검사 중…";
         IsBusy = true;
+        RememberDieRecipes(recipe, folder);
+
+        // ★ 알림은 화면 스레드로 넘어온다(Progress 가 만든 자리의 문맥으로 보낸다). 이번 실행 번호가 아니면 버린다 — 늦게 온 옛 알림.
+        int runId = ++_runId;
+        Progress<WaferProgress> progress = new(p => OnProgress(runId, p));
+        DiesDone = 0;
+        DieTotal = 1;
+        SetStage(recipe.ContextInputs.Contains(ReservedContext.AlignSrc) ? "정렬 중" : "준비 중");
+        _watch.Restart();
+        _clock.Start();
 
         using CancellationTokenSource cancel = new();
         _cancel = cancel;
@@ -367,28 +467,137 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
         try
         {
             WaferInspectionResult result = await Task.Run(
-                () => WaferRecipeRunner.RunIn(recipe, folder, scene.Source, _registry, cancel.Token), cancel.Token);
+                () => WaferRecipeRunner.RunIn(recipe, folder, scene.Source, _registry, cancel.Token, progress), cancel.Token);
 
             Show(result);
+            SetStage(result.Stopped ? "멈춤 — 검사를 시작하지 않았습니다" : $"완료 · die {DiesDone} / {DieTotal}");
             Editor.StatusText = "실행 끝";
         }
         catch (OperationCanceledException)
         {
+            MapCells.Clear();
             SummaryText = "멈췄습니다 — 결과는 버렸습니다(반쯤 본 웨이퍼를 결과처럼 보이지 않게)";
+            SetStage("취소됨");
         }
         catch (Exception error) when (error is WaferRecipeException or RecipeLoadException or RecipeValidationException
                                           or ArgumentException or InvalidOperationException or IOException)
         {
             // ★ 예외 이름을 띄우지 않는다 — 블록을 잘못 이었거나 경로가 틀린 것을 사람 말로.
+            MapCells.Clear();
             SummaryText = "돌리지 못했습니다";
             Editor.ShowRunError(error.Message);
             Editor.StatusText = "실행 실패";
+            SetStage("중단");
         }
         finally
         {
+            _clock.Stop();
+            _watch.Stop();
+            RaiseStage();
             _cancel = null;
             IsBusy = false;
         }
+    }
+
+    /// <summary>
+    /// 실행 중 알림 — 격자가 놓이면 빈 맵(전부 '아직 안 봄'), die 가 끝나면 그 칸만 결과로 바꾼다.
+    /// ★ 끝난 뒤의 맵은 결과에서 다시 그린다(<see cref="Show"/>) — 같은 칸이 나온다(시험: 실행_중_맵_칸).
+    /// </summary>
+    private void OnProgress(int runId, WaferProgress progress)
+    {
+        if (runId != _runId || !IsBusy)
+        {
+            return;
+        }
+
+        switch (progress)
+        {
+            case WaferGridReady ready:
+                MapCols = ready.Grid.Cols;
+                MapCells.Clear();
+
+                foreach (WaferMapCell cell in WaferMap.Pending(ready.Grid))
+                {
+                    MapCells.Add(cell);
+                }
+
+                _cellIndex = MapCells.Select((c, i) => (c, i)).ToDictionary(x => (x.c.Col, x.c.Row), x => x.i);
+                DieTotal = ready.Grid.Count;
+                DiesDone = 0;
+                SetStage($"die 0 / {DieTotal}");
+                break;
+
+            case WaferDieDone done:
+                if (_cellIndex.TryGetValue((done.Die.Die.Col, done.Die.Die.Row), out int index) && index < MapCells.Count)
+                {
+                    MapCells[index] = WaferMap.Cell(done.Die);
+                }
+
+                DiesDone = done.Done;
+                SetStage($"die {done.Done} / {done.Total}");
+                break;
+        }
+    }
+
+    private void SetStage(string stage)
+    {
+        _stage = stage;
+        RaiseStage();
+    }
+
+    private void RaiseStage()
+        => StageText = _stage.Length == 0 ? string.Empty : $"{_stage} · {_watch.Elapsed.TotalSeconds:0}초";
+
+    /// <summary>이번 실행이 읽는 die 레시피 파일 — 다이 미리보기가 같은 파일을 연다(레시피를 나중에 고쳐도 결과와 짝이 맞게).</summary>
+    private void RememberDieRecipes(Recipe recipe, string folder)
+    {
+        _runE1 = null;
+        _runE0 = null;
+
+        if (recipe.Pipeline.Nodes.FirstOrDefault(n => n.Type == "InspectDies") is not { } inspect)
+        {
+            return;
+        }
+
+        try
+        {
+            InspectDiesSettings settings = InspectDiesNodeFactory.Read(inspect);
+            _runE1 = WaferRecipeRunner.PathIn(folder, settings.E1Recipe);
+            _runE0 = settings.E0Recipe is { } e0 ? WaferRecipeRunner.PathIn(folder, e0) : null;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or WaferRecipeException)
+        {
+            // 읽지 못하면 실행기가 같은 까닭으로 멈춘다 — 여기서는 다이 미리보기만 못 한다.
+        }
+    }
+
+    /// <summary>고른 칸의 die 검사 결과 — 결과가 없거나 칸을 안 골랐으면 null.</summary>
+    private DieInspection? SelectedRunDie()
+        => _selectedCell is { } cell
+            ? _result?.Run?.Dies.FirstOrDefault(d => d.Die.Col == cell.Col && d.Die.Row == cell.Row)
+            : null;
+
+    /// <summary>
+    /// 고른 die 를 다이 에디터로 — 그 die 의 존에 맞는 레시피 파일(E1 · E0) + 러너가 실제로 쓴 ROI · 골든 + 원판.
+    /// ★ 손으로 그린 영역이 아니라 러너의 자리라서, 같은 레시피면 웨이퍼 결과와 같은 결함이 나온다.
+    /// </summary>
+    private void PreviewDie()
+    {
+        if (_toDieEditor is null || _scene is not { } scene || _result is not { } result || SelectedRunDie() is not { OffWafer: false } die)
+        {
+            return;
+        }
+
+        string? recipe = die.Die.Zone == WaferZone.E1 ? _runE1 : _runE0 ?? _runE1;
+
+        if (recipe is null || !File.Exists(recipe))
+        {
+            Editor.StatusText = $"다이 미리보기 못 함 — die 레시피 파일이 없습니다: {recipe}";
+            return;
+        }
+
+        string title = $"웨이퍼 die (c{die.Die.Col},r{die.Die.Row}) {die.Die.Zone}";
+        Editor.StatusText = _toDieEditor(new DiePreviewRequest(recipe, new PreviewInput(scene.Source, title, die.Roi, die.GoldenRois, result.Circle)));
     }
 
     private void Show(WaferInspectionResult result)
@@ -419,6 +628,12 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
         }
 
         MapCols = result.Grid!.Cols;
+        _result = result;
+        OnPropertyChanged(nameof(PreviewDieText));
+        _previewDieCommand.RaiseCanExecuteChanged();
+
+        // 실행 중에 칠한 칸을 결과로 다시 — 같은 칸이다(모으기 · 좌표 변환 뒤의 수로 확정).
+        MapCells.Clear();
 
         foreach (WaferMapCell cell in WaferMap.Of(result))
         {
@@ -459,6 +674,12 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
 
     private void ClearResults()
     {
+        _result = null;
+        SelectedCell = null;
+        OnPropertyChanged(nameof(PreviewDieText));
+        _previewDieCommand.RaiseCanExecuteChanged();
+        StageText = string.Empty;
+        _stage = string.Empty;
         SelectedDefect = null;
         DefectBoxes.Clear();
         OverlayDies.Clear();
@@ -476,6 +697,7 @@ public sealed class WaferEditorViewModel : ObservableObject, IDisposable
         _openImageCommand.RaiseCanExecuteChanged();
         _runCommand.RaiseCanExecuteChanged();
         _cancelCommand.RaiseCanExecuteChanged();
+        _previewDieCommand.RaiseCanExecuteChanged();
     }
 
     /// <summary>

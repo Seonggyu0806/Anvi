@@ -75,6 +75,9 @@ public sealed class WaferMapStateToBrushConverter : IValueConverter
         [WaferMapState.Defective] = Make(0xE5, 0x73, 0x73),
         [WaferMapState.Failed] = Make(0xFF, 0xB7, 0x4D),
         [WaferMapState.Outside] = Make(0xF3, 0xF4, 0xF6),
+
+        // 실행 중 아직 안 본 칸 — 옅은 회색(원판 밖보다 조금 진하게, 검사할 칸이라는 표시)
+        [WaferMapState.Pending] = Make(0xE5, 0xE7, 0xEB),
     };
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)

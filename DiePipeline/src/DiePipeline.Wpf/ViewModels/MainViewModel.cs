@@ -80,6 +80,9 @@ public sealed class MainViewModel : ObservableObject
 
     // 마지막으로 뷰어에 옮겨 준 웨이퍼 레시피의 원점 — 레시피가 그대로면 뷰어에서 고치던 값을 덮지 않는다.
     private PointF? _syncedOrigin;
+
+    // ★ 미리보기 입력이 웨이퍼 에디터의 사진에서 왔나 — 그 사진이 바뀌면(놓으면) 합성으로 되돌린다. 뷰어 원본이 바뀌어도 상관없다.
+    private bool _previewFromWafer;
     private readonly RelayCommand _useSyntheticCommand;
     private readonly RelayCommand _showDefectInViewerCommand;
     private readonly RelayCommand _exportReportCommand;
@@ -140,6 +143,7 @@ public sealed class MainViewModel : ObservableObject
             ShowDefectInViewer, () => WaferEditor.SelectedDefect is { AbsX: not null, AbsY: not null } && WaferEditor.Scene is not null);
 
         WaferEditor.PropertyChanged += OnWaferEditorChanged;
+        WaferEditor.ToDieEditor = PreviewWaferDie;
 
         _exportReportCommand = new RelayCommand(ExportReport, () => Defects.Count > 0);
         Defects.CollectionChanged += (_, _) => _exportReportCommand.RaiseCanExecuteChanged();
@@ -433,15 +437,40 @@ public sealed class MainViewModel : ObservableObject
     {
         _viewerScene = null;
 
-        if (_previewInput is not null)
+        if (_previewInput is not null && !_previewFromWafer)
         {
             UseSynthetic();
         }
     }
 
-    private void SetPreviewInput(PreviewInput? input)
+    /// <summary>
+    /// 웨이퍼 에디터의 'die → 다이 미리보기' — 그 die 의 레시피 파일을 다이 에디터에 열고(이미 열려 있으면 고치던 값 그대로),
+    /// 러너와 같은 ROI · 골든으로 미리보기를 돌린 뒤 다이 블록 에디터로 넘어간다. 그 뒤로는 값을 고칠 때마다 이 die 가 다시 검사된다.
+    /// </summary>
+    private string PreviewWaferDie(DiePreviewRequest request)
+    {
+        SetPreviewInput(request.Input, fromWafer: true);
+
+        if (Editor.FilePath is not { } open || !SamePath(open, request.RecipePath))
+        {
+            if (!Editor.Open(request.RecipePath))
+            {
+                return $"다이 미리보기 못 함 — 레시피를 열지 못했습니다: {request.RecipePath}";
+            }
+        }
+
+        bool ran = RunPreview();
+        SelectedWorkspace = Workspace.DieEditor;
+
+        return ran
+            ? $"{request.Input.Title} → 다이 블록 에디터({Path.GetFileName(request.RecipePath)} · 골든 {request.Input.Chips.Count}장) — {PreviewSummary}"
+            : $"{request.Input.Title} → 다이 블록 에디터 — 미리보기를 못 돌렸습니다(검증 · 실행 오류를 보세요)";
+    }
+
+    private void SetPreviewInput(PreviewInput? input, bool fromWafer = false)
     {
         _previewInput = input;
+        _previewFromWafer = input is not null && fromWafer;
         OnPropertyChanged(nameof(PreviewSourceText));
         OnPropertyChanged(nameof(IsOriginalPreview));
         _useSyntheticCommand.RaiseCanExecuteChanged();
@@ -534,6 +563,11 @@ public sealed class MainViewModel : ObservableObject
 
             case nameof(WaferEditorViewModel.HasResult) when !WaferEditor.HasResult:
                 Viewer.ClearMarkers();
+                break;
+
+            // ★ 웨이퍼 사진이 바뀌었다(옛 사진은 놓였다) — 그 사진으로 돌던 다이 미리보기는 합성으로 되돌린다.
+            case nameof(WaferEditorViewModel.OverviewImage) when _previewFromWafer:
+                UseSynthetic();
                 break;
         }
     }

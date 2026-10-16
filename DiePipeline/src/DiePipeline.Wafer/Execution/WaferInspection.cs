@@ -117,6 +117,12 @@ public sealed record WaferInspectionResult
     public double InspectMs { get; init; }
 
     /// <summary>
+    /// 검사에 쓴 원판(가장자리 여유만큼 줄인 것). 원판을 안 줬으면 <c>null</c>.
+    /// ★ 화면의 'die → 다이 미리보기' 가 E0 die 의 원판 마스크를 러너와 같게 만들 때 쓴다.
+    /// </summary>
+    public WaferCircle? Circle { get; init; }
+
+    /// <summary>
     /// 격자가 사진의 일부만 덮을 때 — 사람이 읽는 한 줄. 다 덮으면 <c>null</c>.
     /// ★ 검사는 멈추지 않는다(일부러 일부만 볼 수도 있다). 대신 결과보다 먼저 보여야 한다.
     /// </summary>
@@ -144,8 +150,10 @@ public sealed record WaferInspectionResult
 public static class WaferInspection
 {
     /// <summary>명령행 · 화면 입구 — 표식 조각 하나로 찾고, 대략 원점은 격자 원점(<see cref="WaferSpec.OriginX"/>)이다.</summary>
+    /// <param name="progress">격자 준비 · die 끝 알림 — 화면이 진행을 그린다. 결과에는 영향이 없다.</param>
     public static WaferInspectionResult Run(
-        WaferInspectionRequest request, IImageSource source, NodeRegistry registry, CancellationToken ct = default)
+        WaferInspectionRequest request, IImageSource source, NodeRegistry registry, CancellationToken ct = default,
+        IProgress<WaferProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(source);
@@ -155,7 +163,7 @@ public static class WaferInspection
             ? new Aligner(wanted.SearchPadding, () => AlignByTemplate(source, wanted, new PointF(request.Spec.OriginX, request.Spec.OriginY)))
             : null;
 
-        return Run(request, source, registry, aligner, ct);
+        return Run(request, source, registry, aligner, ct, progress);
     }
 
     /// <summary>
@@ -172,7 +180,8 @@ public static class WaferInspection
     /// </summary>
     /// <param name="aligner"><c>null</c> 이면 정렬을 안 한다 — 반듯하게 놓였다고 보고 격자 원점을 쓴다.</param>
     internal static WaferInspectionResult Run(
-        WaferInspectionRequest request, IImageSource source, NodeRegistry registry, Aligner? aligner, CancellationToken ct)
+        WaferInspectionRequest request, IImageSource source, NodeRegistry registry, Aligner? aligner, CancellationToken ct,
+        IProgress<WaferProgress>? progress = null)
     {
         // ★ 돌리기 전에 통째로 검사한다. die 30개를 돈 뒤에 "레시피가 틀렸다" 를 알면 30번 헛돈 것이다.
         RecipeValidator.EnsureValid(request.E1, registry);
@@ -267,6 +276,10 @@ public static class WaferInspection
             MinimumGoldens = need.Minimum,
         };
 
+        // ★ 정렬이 끝나 격자가 놓였다 — 화면이 빈 맵을 미리 그린다. 이 뒤로는 die 마다 한 번씩 알린다.
+        progress?.Report(new WaferGridReady(grid));
+        int done = 0;
+
         Stopwatch clock = Stopwatch.StartNew();
 
         WaferRunResult run = WaferRunner.Run(
@@ -274,7 +287,8 @@ public static class WaferInspection
             (roi, goldenRois) => Inspect(source, e1Nodes, roi, goldenRois, e1Mask ? circle : null, e1Mask),
             e0Nodes is null ? null : roi => Inspect(source, e0Nodes, roi, [], e0Mask ? circle : null, e0Mask),
             runOptions,
-            ct);
+            ct,
+            progress is null ? null : die => progress.Report(new WaferDieDone(die, ++done, grid.Count)));
 
         clock.Stop();
 
@@ -297,6 +311,7 @@ public static class WaferInspection
             InspectMs = clock.Elapsed.TotalMilliseconds,
             CoverageWarning = coverage,
             EdgeWarning = edge,
+            Circle = circle,
         };
     }
 

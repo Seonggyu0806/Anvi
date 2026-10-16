@@ -54,8 +54,10 @@ public static class WaferRecipeRunner
     /// ★ 화면의 그래프는 아직 파일로 안 썼을 수 있다. 그래도 경로는 <b>그 레시피를 연 · 저장한 폴더</b> 기준이라
     ///   파일로 돌릴 때(<see cref="RunFile"/>)와 같은 파일을 읽는다.
     /// </summary>
+    /// <param name="progress">격자 준비 · die 끝 알림 — 웨이퍼 에디터가 실행 중에 맵을 칠한다. 결과에는 영향이 없다.</param>
     public static WaferInspectionResult RunIn(
-        Recipe recipe, string folder, IImageSource source, NodeRegistry registry, CancellationToken ct = default)
+        Recipe recipe, string folder, IImageSource source, NodeRegistry registry, CancellationToken ct = default,
+        IProgress<WaferProgress>? progress = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(folder);
 
@@ -63,7 +65,8 @@ public static class WaferRecipeRunner
             recipe, source, registry,
             path => RecipeLoader.Load(PathIn(folder, path)),
             path => ImageFile.LoadGrayF32(PathIn(folder, path)),
-            ct);
+            ct,
+            progress);
     }
 
     /// <summary>
@@ -94,7 +97,8 @@ public static class WaferRecipeRunner
     /// </param>
     public static WaferInspectionResult Run(
         Recipe recipe, IImageSource source, NodeRegistry registry,
-        Func<string, Recipe> loadRecipe, Func<string, Mat> loadTemplate, CancellationToken ct = default)
+        Func<string, Recipe> loadRecipe, Func<string, Mat> loadTemplate, CancellationToken ct = default,
+        IProgress<WaferProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(recipe);
         ArgumentNullException.ThrowIfNull(source);
@@ -133,7 +137,7 @@ public static class WaferRecipeRunner
             : new WaferInspection.Aligner(
                 settings.SearchPadding, () => Align(recipe, plan, source, template, settings.SearchPadding, registry, ct));
 
-        WaferInspectionResult result = WaferInspection.Run(request, source, registry, aligner, ct);
+        WaferInspectionResult result = WaferInspection.Run(request, source, registry, aligner, ct, progress);
 
         // 멈췄으면 뒤 토막도 없다. 뒤 토막이 비었으면 속이 한 좌표 변환 그대로다(교수님 하위호환과 같다).
         return result.Stopped || plan.Downstream.Count == 0 ? result : Finish(recipe, plan, result, registry, ct);

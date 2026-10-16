@@ -17,6 +17,12 @@ public sealed record DieInspection
     /// <summary>골든을 몇 장으로 만들었나. E0 는 0 이다.</summary>
     public required int GoldenCount { get; init; }
 
+    /// <summary>
+    /// 골든을 잘라 온 자리들(E1). E0 · 원판 밖이면 비었다.
+    /// ★ 화면의 'die → 다이 미리보기' 가 이 자리 그대로 다시 잘라 본다 — 러너와 같은 ROI · 골든이라야 같은 결과가 나온다.
+    /// </summary>
+    public IReadOnlyList<Roi> GoldenRois { get; init; } = [];
+
     /// <summary>검사가 터졌으면 그 까닭. <c>null</c> 이면 정상이다.</summary>
     public string? Failure { get; init; }
 
@@ -101,12 +107,14 @@ public static class WaferRunner
 {
     /// <param name="inspectE1">검사 ROI + 골든 ROI 들 → 결함. die-to-die 다.</param>
     /// <param name="inspectE0">검사 ROI → 결함. 골든이 없다. E0 die 가 있으면 반드시 줘야 한다.</param>
+    /// <param name="dieDone">die 하나를 끝낼 때마다(원판 밖 칸 포함, 행 우선 순서) — 화면이 맵 칸을 그때그때 칠한다. 결과에는 영향이 없다.</param>
     public static WaferRunResult Run(
         DieGrid grid,
         Func<Roi, IReadOnlyList<Roi>, DefectList> inspectE1,
         Func<Roi, DefectList>? inspectE0,
         WaferRunOptions options,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Action<DieInspection>? dieDone = null)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentNullException.ThrowIfNull(inspectE1);
@@ -131,7 +139,10 @@ public static class WaferRunner
         foreach (DieOrigin die in grid.InRowMajorOrder())
         {
             ct.ThrowIfCancellationRequested();
-            results.Add(InspectOne(grid, die, inspectE1, inspectE0, options));
+
+            DieInspection inspection = InspectOne(grid, die, inspectE1, inspectE0, options);
+            results.Add(inspection);
+            dieDone?.Invoke(inspection);
         }
 
         return new WaferRunResult { Dies = results };
@@ -187,6 +198,7 @@ public static class WaferRunner
                     Roi = roi,
                     Defects = DefectList.Empty,
                     GoldenCount = goldenRois.Count,
+                    GoldenRois = goldenRois,
                     Failure = $"골든이 {goldenRois.Count}장뿐입니다 — "
                               + $"이 레시피는 {options.MinimumGoldens}장이 필요합니다 "
                               + "(이웃 고르는 법을 바꾸거나, 부호로 막는 레시피를 쓰세요)",
@@ -215,6 +227,7 @@ public static class WaferRunner
                 Roi = roi,
                 Defects = defects ?? DefectList.Empty,
                 GoldenCount = goldenRois.Count,
+                GoldenRois = goldenRois,
             };
         }
         catch (OperationCanceledException)
@@ -229,6 +242,7 @@ public static class WaferRunner
                 Roi = roi,
                 Defects = DefectList.Empty,
                 GoldenCount = goldenRois.Count,
+                GoldenRois = goldenRois,
                 Failure = ex.Message,
             };
         }

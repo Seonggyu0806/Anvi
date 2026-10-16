@@ -33,10 +33,12 @@ public sealed record PreviewResult(
     int Height);
 
 /// <summary>
-/// 원본에서 그린 미리보기 입력 — 원본 소스 + 검사 ROI + 정상 die 들(원본 픽셀). 원본 뷰어의 '다이 에디터에 적용' 이 만든다.
-/// ★ 소스는 뷰어 것이다 — 미리보기는 읽기만 하고 놓지 않는다.
+/// 원본에서 그린 미리보기 입력 — 원본 소스 + 검사 ROI + 정상 die 들(원본 픽셀). 원본 뷰어의 '다이 에디터에 적용' 과
+/// 웨이퍼 에디터의 'die → 다이 미리보기' 가 만든다.
+/// ★ 소스는 뷰어 · 웨이퍼 에디터 것이다 — 미리보기는 읽기만 하고 놓지 않는다.
+/// ★ <paramref name="Circle"/> — 원판(웨이퍼 결과가 쓴 것). 원판 마스크를 받는 레시피(E0)는 이게 있어야 돈다. 뷰어에서 그린 영역은 원판을 모른다.
 /// </summary>
-public sealed record PreviewInput(IImageSource Source, string Title, Roi Roi, IReadOnlyList<Roi> Chips);
+public sealed record PreviewInput(IImageSource Source, string Title, Roi Roi, IReadOnlyList<Roi> Chips, WaferCircle? Circle = null);
 
 /// <summary>
 /// 레시피를 <b>합성 이미지</b>로 한 번 돌리고, 각 단계의 중간 이미지를 거둬 온다.
@@ -125,7 +127,7 @@ public static class PreviewService
 
     /// <summary>
     /// 원본의 ROI · 정상 die 로 돌린다 — 실데이터 die 로 레시피 값을 맞춰 보는 길. ★ 아무것도 저장하지 않는다.
-    /// ★ 원판 마스크를 받는 레시피(E0)는 못 돌린다 — 원본 한 장만으로는 원판이 어디 있는지 모른다.
+    /// ★ 원판 마스크를 받는 레시피(E0)는 원판(<see cref="PreviewInput.Circle"/>)이 있어야 돈다 — 웨이퍼 검사와 같은 함수로 마스크를 만든다.
     /// </summary>
     public static PreviewResult Run(NodeRegistry registry, Recipe recipe, PreviewInput input)
     {
@@ -133,13 +135,16 @@ public static class PreviewService
         ArgumentNullException.ThrowIfNull(recipe);
         ArgumentNullException.ThrowIfNull(input);
 
-        if (recipe.ContextInputs.Contains(ReservedContext.WaferMask))
+        bool wantsMask = recipe.ContextInputs.Contains(ReservedContext.WaferMask);
+
+        if (wantsMask && input.Circle is null)
         {
             throw new InvalidOperationException(
-                "원판 마스크(waferMask)를 받는 레시피는 원본 미리보기로 못 돌립니다 — 원판 위치를 모릅니다. '합성으로 되돌리기' 로 보세요");
+                "원판 마스크(waferMask)를 받는 레시피는 원판 위치를 알아야 돕니다 — 웨이퍼 에디터의 'die → 다이 미리보기' 로 보거나 '합성으로 되돌리기' 로 보세요");
         }
 
         using Mat inspect = input.Source.ReadRegion(input.Roi);
+        using Mat? waferMask = wantsMask ? WaferInspection.WaferMaskOf(input.Roi, input.Circle) : null;
         List<Mat> neighbors = [];
 
         try
@@ -152,6 +157,11 @@ public static class PreviewService
             PipelineContext context = new();
             context.SetInput(ReservedContext.Roi, inspect);
             context.SetInput(ReservedContext.ChipRegions, (IReadOnlyList<Mat>)neighbors);
+
+            if (waferMask is not null)
+            {
+                context.SetInput(ReservedContext.WaferMask, waferMask);
+            }
 
             return RunOn(registry, recipe, context, inspect);
         }

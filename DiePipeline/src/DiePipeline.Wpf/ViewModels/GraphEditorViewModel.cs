@@ -542,8 +542,11 @@ public sealed partial class GraphEditorViewModel : ObservableObject
         LoadGraph(_settings.StarterGraph(), fresh: true);
     }
 
-    /// <summary>레시피 파일 하나를 연다(+ 좌표 파일). 못 읽으면 검증칸에 까닭을 띄우고 <c>false</c>.</summary>
-    private bool Open(string path)
+    /// <summary>
+    /// 레시피 파일 하나를 연다(+ 좌표 파일). 못 읽으면 검증칸에 까닭을 띄우고 <c>false</c>.
+    /// ★ 밖에서도 부른다 — 웨이퍼 에디터의 'die → 다이 미리보기' 가 그 die 의 레시피 파일을 다이 에디터에 연다.
+    /// </summary>
+    public bool Open(string path)
     {
         Recipe recipe;
 

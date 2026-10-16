@@ -19,16 +19,20 @@ public enum WaferMapState
 
     /// <summary>검사가 터진 die — 결함 0개로 보이지만 <b>안 본 것</b>이다.</summary>
     Failed,
+
+    /// <summary>아직 안 본 die — 실행 중에만 있다(격자는 놓였고 차례를 기다린다).</summary>
+    Pending,
 }
 
 /// <summary>
 /// 웨이퍼 맵의 칸 하나 = die 하나. 결함 수는 <b>샘플링 전</b>(<see cref="WaferInspectionResult.Found"/>) — 판정과 같은 것을 센다.
 /// </summary>
-public sealed record WaferMapCell(int Col, int Row, WaferZone Zone, int Defects, bool Failed)
+public sealed record WaferMapCell(int Col, int Row, WaferZone Zone, int Defects, bool Failed, bool Pending = false)
 {
     public WaferMapState State
         => Failed ? WaferMapState.Failed
             : Zone == WaferZone.Outside ? WaferMapState.Outside
+            : Pending ? WaferMapState.Pending
             : Defects > 0 ? WaferMapState.Defective
             : Zone == WaferZone.E0 ? WaferMapState.E0
             : WaferMapState.E1;
@@ -72,5 +76,27 @@ public static class WaferMap
                 counts.GetValueOrDefault((die.Col, die.Row)),
                 failed.Contains((die.Col, die.Row)))),
         ];
+    }
+
+    /// <summary>
+    /// 실행 중 — 격자만 놓인 맵. 칸은 전부 '아직 안 봄'(원판 밖은 원판 밖). 행 우선, <see cref="Of"/> 와 같은 순서 · 같은 칸 수.
+    /// </summary>
+    public static IReadOnlyList<WaferMapCell> Pending(DieGrid grid)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+
+        return [.. grid.InRowMajorOrder().Select(die => new WaferMapCell(die.Col, die.Row, die.Zone, 0, false, Pending: true))];
+    }
+
+    /// <summary>
+    /// 실행 중 — 방금 끝난 die 하나의 칸. 결함 수는 그 die 가 낸 그대로다(모으기 전) — 끝난 뒤 <see cref="Of"/> 가 같은 수를 센다.
+    /// </summary>
+    public static WaferMapCell Cell(DieInspection inspection)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+
+        DieOrigin die = inspection.Die;
+
+        return new WaferMapCell(die.Col, die.Row, die.Zone, inspection.Defects.Count, inspection.Failed);
     }
 }

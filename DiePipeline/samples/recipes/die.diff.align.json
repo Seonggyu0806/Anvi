@@ -1,0 +1,53 @@
+{
+  "recipeId": "die.diff.align",
+  "description": "die-to-die — die.diff 에 정합(평행이동 · 소수점 픽셀)과 빼기 뒤 Median 3 을 더한 것. 원본 뷰어에서 손으로 찍은 정상 die 처럼 이웃이 몇 px 어긋나도 회로 윤곽이 결함으로 남지 않게 한다(동기 E1 레시피와 같은 처방). 웨이퍼 격자에서 자른 die 는 die.diff 로 충분하다 — 실데이터 회귀 기준은 die.diff 다.",
+
+  "contextInputs": [ "roi", "chipRegions" ],
+
+  "pipeline": {
+    "nodes": [
+      {
+        "id": "golden",
+        "type": "Combine",
+        "inputs": { "regions": "chipRegions" },
+        "outputs": { "result": "golden" },
+        "params": { "strategy": "Mean" }
+      },
+      {
+        "id": "align",
+        "type": "Align",
+        "inputs": { "src": "golden", "reference": "roi" },
+        "outputs": { "result": "goldenAligned" },
+        "params": { "method": "Translation", "minResponse": 0.3, "maxShiftPx": 20 }
+      },
+      {
+        "id": "diff",
+        "type": "Difference",
+        "inputs": { "test": "roi", "golden": "goldenAligned" },
+        "outputs": { "result": "diff" },
+        "params": { "windowSize": 3, "diffPolicy": "DarkOnly", "neighborMode": "MinMax" }
+      },
+      {
+        "id": "clean",
+        "type": "Filter",
+        "inputs": { "src": "diff" },
+        "outputs": { "result": "diffClean" },
+        "params": { "filters": [ { "type": "Median", "kernel": 3 } ] }
+      },
+      {
+        "id": "binarize",
+        "type": "Binarize",
+        "inputs": { "src": "diffClean" },
+        "outputs": { "result": "mask" },
+        "params": { "method": "Threshold", "value": 0.2 }
+      },
+      {
+        "id": "label",
+        "type": "Label",
+        "inputs": { "mask": "mask", "intensity": "roi" },
+        "outputs": { "result": "defectList" },
+        "params": { "connectivity": 8, "minArea": 500 }
+      }
+    ]
+  }
+}

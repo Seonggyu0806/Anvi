@@ -437,6 +437,11 @@
                         <TextBlock Text="{Binding ImageText}" VerticalAlignment="Center" Margin="6,0" Foreground="#475569" />
                         <Button Content="▶ 실행" Command="{Binding RunCommand}" Padding="12,2" Margin="12,0,4,0" FontWeight="Bold" />
                         <Button Content="취소" Command="{Binding CancelCommand}" Padding="8,2" />
+                        <!-- 실행 단계 — 정렬 중 → die n / N → 완료(경과 초). 막대는 실행 중에만 -->
+                        <ProgressBar Width="160" Height="12" Margin="12,0,6,0" VerticalAlignment="Center"
+                                     Maximum="{Binding DieTotal}" Value="{Binding DiesDone, Mode=OneWay}"
+                                     Visibility="{Binding IsBusy, Converter={StaticResource ShowWhenTrue}}" />
+                        <TextBlock Text="{Binding StageText}" VerticalAlignment="Center" Foreground="#1D4ED8" FontWeight="Bold" />
                     </StackPanel>
 
                     <StackPanel DockPanel.Dock="Top" Margin="0,4,0,2">
@@ -455,33 +460,61 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <!-- 칸 지도 — die 하나가 칸 하나. 색 = 상태, 숫자 = 결함 수(샘플링 전), '!' = 검사가 터진 die -->
-                        <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl ItemsSource="{Binding MapCells}" HorizontalAlignment="Left" VerticalAlignment="Top">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <UniformGrid Columns="{Binding MapCols}" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Width="26" Height="26" Margin="1" CornerRadius="2"
-                                                Background="{Binding State, Converter={StaticResource MapBrush}}">
-                                            <Border.ToolTip>
-                                                <TextBlock>
-                                                    <Run Text="die(c" /><Run Text="{Binding Col, Mode=OneWay}" /><Run Text=",r" /><Run Text="{Binding Row, Mode=OneWay}" /><Run Text=")" />
-                                                    <Run Text="{Binding Zone, Mode=OneWay}" />
-                                                    <Run Text="· 결함" />
-                                                    <Run Text="{Binding Defects, Mode=OneWay}" />
-                                                </TextBlock>
-                                            </Border.ToolTip>
-                                            <TextBlock Text="{Binding Label}" FontSize="11" FontWeight="Bold"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+                        <!-- 칸 지도 — die 하나가 칸 하나. 색 = 상태, 숫자 = 결함 수(샘플링 전), '!' = 검사가 터진 die.
+                             실행 중에는 die 가 끝날 때마다 칠해진다. 칸을 누르면 그 die 를 고른다 → 다이 미리보기 -->
+                        <DockPanel Grid.Column="0">
+                            <Button DockPanel.Dock="Top" HorizontalAlignment="Left" Padding="6,1" Margin="0,0,0,4"
+                                    Content="{Binding PreviewDieText}" Command="{Binding PreviewDieCommand}"
+                                    ToolTip="고른 die 를 다이 블록 에디터에서 러너와 같은 ROI · 골든으로 미리보기 — 값을 고치면 바로 다시 검사" />
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                                <ListBox ItemsSource="{Binding MapCells}" SelectedItem="{Binding SelectedCell}" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                         BorderThickness="0" Background="Transparent">
+                                    <ListBox.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <UniformGrid Columns="{Binding MapCols}" />
+                                        </ItemsPanelTemplate>
+                                    </ListBox.ItemsPanel>
+                                    <!-- 고른 칸은 파란 테두리 — 기본 고름 색은 칸 색을 가려서 쓰지 않는다 -->
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="Padding" Value="0" />
+                                            <Setter Property="Margin" Value="0" />
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="ListBoxItem">
+                                                        <Border x:Name="Pick" BorderThickness="2" BorderBrush="Transparent" CornerRadius="3">
+                                                            <ContentPresenter />
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsSelected" Value="True">
+                                                                <Setter TargetName="Pick" Property="BorderBrush" Value="#2563EB" />
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Width="26" Height="26" Margin="1" CornerRadius="2"
+                                                    Background="{Binding State, Converter={StaticResource MapBrush}}">
+                                                <Border.ToolTip>
+                                                    <TextBlock>
+                                                        <Run Text="die(c" /><Run Text="{Binding Col, Mode=OneWay}" /><Run Text=",r" /><Run Text="{Binding Row, Mode=OneWay}" /><Run Text=")" />
+                                                        <Run Text="{Binding Zone, Mode=OneWay}" />
+                                                        <Run Text="· 결함" />
+                                                        <Run Text="{Binding Defects, Mode=OneWay}" />
+                                                    </TextBlock>
+                                                </Border.ToolTip>
+                                                <TextBlock Text="{Binding Label}" FontSize="11" FontWeight="Bold"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </ScrollViewer>
+                        </DockPanel>
 
                         <!-- 결함 표 — 샘플링 후(보여 줄 것). 웨이퍼 좌표는 정렬을 적용한 절대 좌표 -->
                         <DataGrid Grid.Column="1" ItemsSource="{Binding Defects}" SelectedItem="{Binding SelectedDefect}"
