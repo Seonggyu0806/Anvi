@@ -6,6 +6,7 @@ using System.Windows.Media.Imaging;
 using DiePipeline.Core.Configuration;
 using DiePipeline.Core.Domain;
 using DiePipeline.Core.Imaging;
+using DiePipeline.Cv.Algorithms;
 using DiePipeline.Cv.Imaging;
 using DiePipeline.Viewer;
 using DiePipeline.Wpf.Imaging;
@@ -682,15 +683,73 @@ public sealed class ImageViewerViewModel : ObservableObject, IDisposable
         }
 
         Roi roi = RoiRegions[0].Area;
-        Roi[] chips = [.. ChipRegions.Select(c => c.Area)];
 
-        if (RegionTool.CheckDieRegions(roi, chips, ImageWidth, ImageHeight) is { } problem)
+        if (RegionTool.CheckDieRegions(roi, [.. ChipRegions.Select(c => c.Area)], ImageWidth, ImageHeight) is { } problem)
         {
             StatusText = "적용 못 함 — " + problem;
             return;
         }
 
-        StatusText = _applyToDie(new PreviewInput(_source, _title, roi, chips));
+        // ★ 넘기기 전에 정상 die 상자를 검사 die 무늬에 맞춘다 — 옮긴 상자가 화면에 보이고, 옮긴 자리로 미리보기한다.
+        string snapped = SnapChips(roi);
+        Roi[] chips = [.. ChipRegions.Select(c => c.Area)];
+
+        StatusText = snapped + _applyToDie(new PreviewInput(_source, _title, roi, chips));
+    }
+
+    /// <summary>
+    /// 정상 die 자동 맞춤 — 상자마다 검사 die 와 어긋난 양을 재서(<see cref="ChipSnap"/>) 정수 px 만큼 옮긴다. 옮긴 내용을 돌려준다.
+    /// ★ 손으로 그린 정상 die 는 제각각 몇~십몇 px 어긋나, 레시피가 합친 골든이 번져 무늬 윤곽이 결함으로 남았다(실데이터 결함 없는 die).
+    /// ★ 옮길 양은 die 한 변의 1/8 까지 — 넘거나 무늬가 안 맞거나 옮기면 그림 밖이면 그대로 두고 까닭을 적는다.
+    /// </summary>
+    private string SnapChips(Roi roi)
+    {
+        if (_source is null || ChipRegions.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        int maxShift = Math.Max(8, Math.Min(roi.Width, roi.Height) / 8);
+        using Mat test = _source.ReadRegion(roi);
+        List<string> notes = [];
+
+        for (int i = 0; i < ChipRegions.Count; i++)
+        {
+            RegionViewModel chip = ChipRegions[i];
+            ChipSnapResult result;
+
+            using (Mat golden = _source.ReadRegion(chip.Area))
+            {
+                result = ChipSnap.Measure(test, golden, maxShift);
+            }
+
+            string name = $"정상 die {i + 1}";
+
+            if (result.Refused is { } why)
+            {
+                notes.Add($"{name}: {why}");
+                continue;
+            }
+
+            if (!result.Moves)
+            {
+                continue;
+            }
+
+            Roi moved = new(chip.X + result.Dx, chip.Y + result.Dy, chip.Width, chip.Height);
+
+            if (moved.X < 0 || moved.Y < 0 || moved.Right > ImageWidth || moved.Bottom > ImageHeight)
+            {
+                notes.Add($"{name}: 옮기면 그림 밖 — 그대로 둡니다");
+                continue;
+            }
+
+            chip.X = moved.X;
+            chip.Y = moved.Y;
+            notes.Add(string.Create(CultureInfo.InvariantCulture, $"{name}: ({result.Dx:+0;-0;0}, {result.Dy:+0;-0;0}) px 옮김"));
+        }
+
+        return notes.Count == 0 ? "정상 die 어긋남 없음 · " : "자동 맞춤 — " + string.Join(" · ", notes) + " · ";
     }
 
     /// <summary>표식 설계 자리(특징 왼쪽 위 − 원점)를 계산해 웨이퍼 레시피에 쓴다.</summary>
