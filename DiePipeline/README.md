@@ -29,6 +29,12 @@ dotnet run --project src/DiePipeline.App -- wafer -i out/wafer.bmp --recipe samp
 dotnet run --project src/DiePipeline.Wpf
 ```
 
+원본 사진의 die 하나를 화면에서 볼 때:
+
+1. 다이 블록 에디터에서 `samples/recipes/die.diff.align.json` 을 연다 — 기본 그래프는 합성 견본용이다
+2. 원본 이미지 뷰어에서 검사 die · 정상 die(3장 이상)를 그린다
+3. '다이 블록 에디터에 적용' — 정상 die 상자를 검사 die 무늬에 자동으로 맞춘 뒤 검사한다. 임계 · 면적 하한은 다이 블록 에디터의 블록 값으로 고친다
+
 ## 흐름
 
 ```
@@ -41,7 +47,7 @@ die     이웃 합치기(골든) → 빼기 → 이진화 → 덩어리 세기 �
 | 프로젝트 | 하는 일 |
 |---|---|
 | `Core` | 파이프라인 엔진 · 레시피와 검증 · 노드 명부 · 원본 부분 읽기. 이미지 라이브러리를 모른다 |
-| `Cv` | 알고리즘과 노드(OpenCvSharp) · 이미지 소스 · 합성 웨이퍼 |
+| `Cv` | 알고리즘과 노드(OpenCvSharp) · 이미지 소스 · 합성 웨이퍼 · 정상 die 자동 맞춤 |
 | `Wafer` | 격자 · 존 · 정렬 · 이웃 선택 · die 반복 · 결과 처리 · 웨이퍼 레시피 |
 | `Editor` | 블록 그래프 편집 규칙 · 그래프 ↔ 레시피 변환 · 자동 배치 · 편집 이력 |
 | `Viewer` | 원본 이미지 뷰어의 계산 — 화면 ↔ 원본 좌표 · 축소본 · 보이는 영역 · 영역 끌기 · 도장 |
@@ -52,7 +58,7 @@ die     이웃 합치기(골든) → 빼기 → 이진화 → 덩어리 세기 �
 |---|---|
 | `samples/recipes` | die 레시피 5개 |
 | `samples/wafer` | 웨이퍼 레시피 견본 · 표식 조각(코드가 그린 그림) |
-| `tests/DiePipeline.Tests` | 테스트 683개 |
+| `tests/DiePipeline.Tests` | 테스트 688개 |
 
 ## 문서
 
